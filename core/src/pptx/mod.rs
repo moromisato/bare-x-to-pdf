@@ -650,16 +650,13 @@ fn find_placeholder<'a>(list: &'a [Placeholder], kind: &str, idx: Option<&str>) 
             other => other,
         }
     }
-    let equivalent = |a: &str, b: &str| norm(a) == norm(b);
-    if let Some(idx) = idx {
-        if let Some(p) = list.iter().find(|p| p.idx.as_deref() == Some(idx) && equivalent(&p.kind, kind)) {
-            return Some(p);
-        }
-        if let Some(p) = list.iter().find(|p| p.idx.as_deref() == Some(idx)) {
-            return Some(p);
-        }
+    let by_type = matches!(norm(kind), "title" | "dt" | "ftr" | "sldNum");
+    if by_type {
+        return list.iter().find(|p| norm(&p.kind) == norm(kind));
     }
-    list.iter().find(|p| equivalent(&p.kind, kind))
+    let wanted = idx.unwrap_or("0");
+    list.iter()
+        .find(|p| p.idx.as_deref().unwrap_or("0") == wanted)
 }
 
 fn shape(
@@ -685,29 +682,39 @@ fn shape(
 
     let mut chain: Vec<&LevelStyles> = vec![ctx.default_text];
     let mut inherited_xfrm = None;
-    let mut inherited_body: Option<&Element> = None;
+    let mut body_chain: Vec<&Element> = Vec::new();
 
     if let Some((kind, idx)) = &ph {
+        let layout_ph = if render_placeholders {
+            find_placeholder(ctx.layout_placeholders, kind, idx.as_deref())
+        } else {
+            None
+        };
+        let master_kind = layout_ph.map(|l| l.kind.as_str()).unwrap_or(kind.as_str());
+        let master_idx = layout_ph.and_then(|l| l.idx.as_deref()).or(idx.as_deref());
+        let master_ph = find_placeholder(ctx.master_placeholders, master_kind, master_idx);
+        let styled = !render_placeholders || layout_ph.is_some() || master_ph.is_some();
         let master_style = match kind.as_str() {
+            _ if !styled => ctx.other_style,
             "title" | "ctrTitle" => ctx.title_style,
-            "body" | "subTitle" | "obj" => ctx.body_style,
-            _ => ctx.other_style,
+            "dt" | "ftr" | "sldNum" => ctx.other_style,
+            _ => ctx.body_style,
         };
         chain.push(master_style);
-        let master_ph = find_placeholder(ctx.master_placeholders, kind, idx.as_deref());
-        let layout_ph = find_placeholder(ctx.layout_placeholders, kind, idx.as_deref());
         if let Some(m) = master_ph {
             chain.push(&m.styles);
             inherited_xfrm = m.xfrm;
-            inherited_body = m.body.as_ref();
+            if let Some(b) = m.body.as_ref() {
+                body_chain.push(b);
+            }
         }
         if let Some(l) = layout_ph {
             chain.push(&l.styles);
             if l.xfrm.is_some() {
                 inherited_xfrm = l.xfrm;
             }
-            if l.body.is_some() {
-                inherited_body = l.body.as_ref();
+            if let Some(b) = l.body.as_ref() {
+                body_chain.push(b);
             }
         }
         if !render_placeholders {
@@ -758,8 +765,10 @@ fn shape(
         _ => ShapeKind::Rect,
     };
 
-    let body_pr = body.and_then(|b| b.child("bodyPr"));
-    let (inset, valign, scale, reduction) = body_settings(body_pr, inherited_body);
+    if let Some(own) = body.and_then(|b| b.child("bodyPr")) {
+        body_chain.push(own);
+    }
+    let (inset, valign, scale, reduction) = body_settings(&body_chain);
 
     let text_ctx = TextContext {
         theme: ctx.theme,
@@ -790,8 +799,8 @@ fn shape(
     out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, content, placed.rot, placed.flip_h, placed.flip_v, false));
 }
 
-fn body_settings(own: Option<&Element>, inherited: Option<&Element>) -> ((f64, f64, f64, f64), VAlign, f64, f64) {
-    let pick = |name: &str| own.and_then(|b| b.attr(name)).or_else(|| inherited.and_then(|b| b.attr(name)));
+fn body_settings(chain: &[&Element]) -> ((f64, f64, f64, f64), VAlign, f64, f64) {
+    let pick = |name: &str| chain.iter().rev().find_map(|b| b.attr(name));
     let inset = |name: &str, default: f64| pick(name).and_then(emu).unwrap_or(default);
     let insets = (inset("tIns", 3.6), inset("lIns", 7.2), inset("bIns", 3.6), inset("rIns", 7.2));
     let valign = match pick("anchor") {
@@ -799,7 +808,7 @@ fn body_settings(own: Option<&Element>, inherited: Option<&Element>) -> ((f64, f
         Some("b") => VAlign::Bottom,
         _ => VAlign::Top,
     };
-    let autofit = own.and_then(|b| b.child("normAutofit")).or_else(|| inherited.and_then(|b| b.child("normAutofit")));
+    let autofit = chain.iter().rev().find_map(|b| b.child("normAutofit"));
     let scale = autofit
         .and_then(|a| a.attr("fontScale"))
         .and_then(|v| v.parse::<f64>().ok())
