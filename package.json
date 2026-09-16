@@ -1,0 +1,48 @@
+{
+  "name": "simple-converter",
+  "version": "0.1.0",
+  "description": "DOCX and PDF conversion for Bare: a Rust engine on Typst and PDFium",
+  "exports": {
+    "./package": "./package.json",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "binding.c",
+    "binding.js",
+    "CMakeLists.txt",
+    "cmake",
+    "core",
+    "fonts",
+    "prebuilds"
+  ],
+  "addon": true,
+  "scripts": {
+    "format": "prettier --write .",
+    "lint": "prettier --check . && lunte",
+    "test": "brittle-bare test.js",
+    "bench": "bare bench/run.js"
+  },
+  "license": "Apache-2.0",
+  "prettier": "prettier-config-holepunch",
+  "dependencies": {
+    "bare-path": "^3.0.0",
+    "bare-url": "^2.4.1"
+  },
+  "devDependencies": {
+    "bare-fs": "^4.0.0",
+    "bare-pdfium": "file:../bare-pdfium",
+    "bare-zlib": "^1.0.0",
+    "brittle": "^3.4.0",
+    "cmake-bare": "^1.8.3",
+    "cmake-fetch": "^1.5.1",
+    "lunte": "^1.6.0",
+    "prettier": "^3.4.2",
+    "prettier-config-holepunch": "^2.0.0"
+  }
+}

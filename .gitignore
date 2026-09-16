@@ -1,0 +1,6 @@
+node_modules
+build
+prebuilds
+core/target
+bench/out
+.DS_Store
