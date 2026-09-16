@@ -129,7 +129,7 @@ pub enum Block {
     Table(Table),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Paragraph {
     pub props: ParagraphProps,
     pub mark: RunProps,

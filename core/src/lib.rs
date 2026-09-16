@@ -2,6 +2,7 @@ pub mod docx;
 pub mod error;
 pub mod model;
 pub mod pdf;
+pub mod pptx;
 pub mod typst_backend;
 pub mod xml;
 
@@ -21,6 +22,10 @@ pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<
     match (from, to) {
         ("docx", "pdf") => {
             let document = docx::read(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
+        ("pptx", "pdf") => {
+            let document = pptx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
         ("pdf", "docx") => {

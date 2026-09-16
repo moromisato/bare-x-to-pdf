@@ -112,14 +112,21 @@ pub fn parse(bytes: &[u8]) -> Result<Element, Error> {
 
 fn element(start: &quick_xml::events::BytesStart<'_>) -> Result<Element, Error> {
     let name = local(start.name().as_ref());
-    let mut attrs = Vec::new();
+    let mut attrs: Vec<(String, String)> = Vec::new();
     for attr in start.attributes() {
         let attr = attr.map_err(|e| Error::new(format!("xml attribute: {e}")))?;
-        let key = local(attr.key.as_ref());
+        let qualified: &str = attr.key.as_ref();
+        let key = local(qualified);
         let value = attr
             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-            .map_err(|e| Error::new(format!("xml attribute: {e}")))?;
-        attrs.push((key, value.into_owned()));
+            .map_err(|e| Error::new(format!("xml attribute: {e}")))?
+            .into_owned();
+        if qualified.contains(':') {
+            attrs.push((qualified.to_string(), value.clone()));
+        }
+        if !attrs.iter().any(|(k, _)| *k == key) {
+            attrs.push((key, value));
+        }
     }
     Ok(Element {
         name,

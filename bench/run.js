@@ -25,8 +25,8 @@ const files = fs
 
 for (const file of files) {
   const ext = path.extname(file).toLowerCase()
-  if (ext === '.docx') results.push(...runDocx(file))
-  else if (ext === '.pdf') results.push(...runPdf(file))
+  if (ext === '.pdf') results.push(...runPdf(file))
+  else if (ext.length > 1) results.push(...runToPdf(file, ext.slice(1)))
 }
 
 printTable(results, previous)
@@ -40,19 +40,23 @@ fs.writeFileSync(
   )
 )
 
-function runDocx(file) {
+function runToPdf(file, from) {
   const src = path.join(corpusDir, file)
   const dir = caseDir(file)
   const bytes = fs.readFileSync(src)
 
   const referencePdf = path.join(dir, 'reference.pdf')
-  const refTime = time(() => engine.convert(src, referencePdf, 'pdf'))
-
-  const result = { name: file, task: 'docx>pdf', referenceMs: refTime }
+  const result = { name: file, task: `${from}>pdf` }
+  try {
+    result.referenceMs = time(() => engine.convert(src, referencePdf, 'pdf'))
+  } catch (error) {
+    result.error = `reference: ${error.message}`
+    return [result]
+  }
   try {
     let ours
     result.oursMs = time(() => {
-      ours = converter.convert(bytes, { from: 'docx', to: 'pdf' })
+      ours = converter.convert(bytes, { from, to: 'pdf' })
     })
     fs.writeFileSync(path.join(dir, 'ours.pdf'), ours)
     Object.assign(result, score(fs.readFileSync(referencePdf), ours, dir, 'ours'))

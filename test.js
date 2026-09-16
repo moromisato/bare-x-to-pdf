@@ -19,7 +19,7 @@ test('lists supported conversions', (t) => {
   t.absent(converter.supports('pdf', 'pdf'))
   t.alike(
     converter.conversions().map((c) => `${c.from}>${c.to}`),
-    ['docx>pdf', 'pdf>docx']
+    ['docx>pdf', 'pptx>pdf', 'pdf>docx']
   )
 })
 
@@ -52,6 +52,19 @@ test('converts a pdf to a fixed-layout docx that converts back to pdf', (t) => {
   const size = doc.pageSize(0)
   t.ok(Math.abs(size.width - 612) < 1)
   t.ok(Math.abs(size.height - 792) < 1)
+  doc.close()
+})
+
+test('converts a pptx deck to one pdf page per slide', (t) => {
+  const pptx = fs.readFileSync(path.join(__dirname, 'bench', 'corpus', 'sdk-sample.pptx'))
+  t.is(converter.detect(pptx), 'pptx')
+  const pdf = converter.convert(pptx, { to: 'pdf' })
+  const doc = pdfium.open(pdf)
+  t.is(doc.pageCount(), 4)
+  const size = doc.pageSize(0)
+  t.ok(Math.abs(size.width - 720) < 1)
+  t.ok(Math.abs(size.height - 405) < 1)
+  t.ok(doc.pageFlags(0).hasText)
   doc.close()
 })
 

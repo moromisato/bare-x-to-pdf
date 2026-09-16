@@ -13,15 +13,16 @@ are the only per-format work; layout, fonts, tables, images, headers, lists and
 footnotes are shared. The formats that matter are the Office ones, in this
 order:
 
-| Input | Status | Notes |
-|---|---|---|
-| DOCX | done | Flow layout through the shared model. |
-| PPTX | in progress | Slides are fixed-layout pages: placeholders resolved through layout and master, shapes, pictures, tables, bullets. |
-| XLSX | next | Sheets as paginated grids with cell styles, merged cells and the sheet's page setup. |
-| DOC | after that | Binary Word 97-2003 reader onto the same flow model; several months of work. |
+| Input | Status      | Notes                                                                                                              |
+| ----- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| DOCX  | done        | Flow layout through the shared model.                                                                              |
+| PPTX  | in progress | Slides are fixed-layout pages: placeholders resolved through layout and master, shapes, pictures, tables, bullets. |
+| XLSX  | next        | Sheets as paginated grids with cell styles, merged cells and the sheet's page setup.                               |
+| DOC   | after that  | Binary Word 97-2003 reader onto the same flow model; several months of work.                                       |
 
-PDF to DOCX also exists (fixed-layout output) and stays, but it is no longer the
-focus. Plain text and Markdown are deliberately out of scope; they are cheap to
+[FORMATS.md](FORMATS.md) lists every import filter bare-collabora ships and
+what it would take to render each one here. PDF to DOCX also exists
+(fixed-layout output) and stays, but it is no longer the focus. Plain text and Markdown are deliberately out of scope; they are cheap to
 handle elsewhere.
 
 The goal is faithful output, not pixel identity with Office. Fidelity is

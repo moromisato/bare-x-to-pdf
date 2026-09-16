@@ -1,4 +1,5 @@
 mod numbering;
+pub use numbering::format_number;
 mod styles;
 pub mod writer;
 

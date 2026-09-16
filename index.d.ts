@@ -1,4 +1,4 @@
-export type Format = 'docx' | 'pdf' | 'doc'
+export type Format = 'docx' | 'pptx' | 'xlsx' | 'pdf' | 'doc'
 
 export interface ConvertOptions {
   to: Format | string

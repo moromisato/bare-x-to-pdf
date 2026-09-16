@@ -19,8 +19,15 @@ function defaultPdfiumPath() {
 
 const CONVERSIONS = {
   docx: ['pdf'],
+  pptx: ['pdf'],
   pdf: ['docx']
 }
+
+const OOXML_MARKERS = [
+  { format: 'docx', marker: 'word/' },
+  { format: 'pptx', marker: 'ppt/' },
+  { format: 'xlsx', marker: 'xl/' }
+]
 
 const SIGNATURES = [
   { format: 'pdf', bytes: [0x25, 0x50, 0x44, 0x46] },
@@ -32,7 +39,17 @@ function detect(input) {
   const bytes = toBytes(input)
   for (const { format, bytes: magic } of SIGNATURES) {
     if (bytes.length < magic.length) continue
-    if (magic.every((b, i) => bytes[i] === b)) return format
+    if (!magic.every((b, i) => bytes[i] === b)) continue
+    if (format === 'docx') return detectOoxml(bytes) || 'docx'
+    return format
+  }
+  return null
+}
+
+function detectOoxml(bytes) {
+  const names = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1')
+  for (const { format, marker } of OOXML_MARKERS) {
+    if (names.includes(marker)) return format
   }
   return null
 }
