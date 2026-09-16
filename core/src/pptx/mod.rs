@@ -655,8 +655,10 @@ fn find_placeholder<'a>(list: &'a [Placeholder], kind: &str, idx: Option<&str>) 
         return list.iter().find(|p| norm(&p.kind) == norm(kind));
     }
     let wanted = idx.unwrap_or("0");
-    list.iter()
-        .find(|p| p.idx.as_deref().unwrap_or("0") == wanted)
+    list.iter().find(|p| {
+        !matches!(norm(&p.kind), "title" | "dt" | "ftr" | "sldNum")
+            && p.idx.as_deref().unwrap_or("0") == wanted
+    })
 }
 
 fn shape(
@@ -762,7 +764,7 @@ fn shape(
         "ellipse" => ShapeKind::Ellipse,
         "roundRect" => ShapeKind::RoundRect(placed.w.min(placed.h) * 0.16667),
         "line" | "straightConnector1" | "bentConnector3" => ShapeKind::Line,
-        _ => ShapeKind::Rect,
+        other => preset_polygon(other).map(ShapeKind::Polygon).unwrap_or(ShapeKind::Rect),
     };
 
     if let Some(own) = body.and_then(|b| b.child("bodyPr")) {
@@ -1016,6 +1018,30 @@ fn parse_table(tbl: &Element, ctx: &SlideCtx) -> Table {
         table.rows.push(row);
     }
     table
+}
+
+fn preset_polygon(name: &str) -> Option<Vec<(f64, f64)>> {
+    let points: &[(f64, f64)] = match name {
+        "rightArrow" => &[(0.0, 0.25), (0.65, 0.25), (0.65, 0.0), (1.0, 0.5), (0.65, 1.0), (0.65, 0.75), (0.0, 0.75)],
+        "leftArrow" => &[(1.0, 0.25), (0.35, 0.25), (0.35, 0.0), (0.0, 0.5), (0.35, 1.0), (0.35, 0.75), (1.0, 0.75)],
+        "upArrow" => &[(0.25, 1.0), (0.25, 0.35), (0.0, 0.35), (0.5, 0.0), (1.0, 0.35), (0.75, 0.35), (0.75, 1.0)],
+        "downArrow" => &[(0.25, 0.0), (0.25, 0.65), (0.0, 0.65), (0.5, 1.0), (1.0, 0.65), (0.75, 0.65), (0.75, 0.0)],
+        "leftRightArrow" => &[(0.0, 0.5), (0.25, 0.0), (0.25, 0.25), (0.75, 0.25), (0.75, 0.0), (1.0, 0.5), (0.75, 1.0), (0.75, 0.75), (0.25, 0.75), (0.25, 1.0)],
+        "homePlate" => &[(0.0, 0.0), (0.75, 0.0), (1.0, 0.5), (0.75, 1.0), (0.0, 1.0)],
+        "chevron" => &[(0.0, 0.0), (0.75, 0.0), (1.0, 0.5), (0.75, 1.0), (0.0, 1.0), (0.25, 0.5)],
+        "triangle" | "isocelesTriangle" => &[(0.5, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        "rtTriangle" => &[(0.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        "diamond" => &[(0.5, 0.0), (1.0, 0.5), (0.5, 1.0), (0.0, 0.5)],
+        "parallelogram" => &[(0.25, 0.0), (1.0, 0.0), (0.75, 1.0), (0.0, 1.0)],
+        "trapezoid" => &[(0.25, 0.0), (0.75, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        "pentagon" => &[(0.5, 0.0), (1.0, 0.38), (0.81, 1.0), (0.19, 1.0), (0.0, 0.38)],
+        "hexagon" => &[(0.25, 0.0), (0.75, 0.0), (1.0, 0.5), (0.75, 1.0), (0.25, 1.0), (0.0, 0.5)],
+        "octagon" => &[(0.29, 0.0), (0.71, 0.0), (1.0, 0.29), (1.0, 0.71), (0.71, 1.0), (0.29, 1.0), (0.0, 0.71), (0.0, 0.29)],
+        "flowChartDecision" => &[(0.5, 0.0), (1.0, 0.5), (0.5, 1.0), (0.0, 0.5)],
+        "notchedRightArrow" => &[(0.0, 0.25), (0.65, 0.25), (0.65, 0.0), (1.0, 0.5), (0.65, 1.0), (0.65, 0.75), (0.0, 0.75), (0.15, 0.5)],
+        _ => return None,
+    };
+    Some(points.to_vec())
 }
 
 enum TableLook {

@@ -464,12 +464,13 @@ pub struct ImageData {
     pub format: ImageFormat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ShapeKind {
     Rect,
     RoundRect(f64),
     Ellipse,
     Line,
+    Polygon(Vec<(f64, f64)>),
 }
 
 #[derive(Debug, Clone)]

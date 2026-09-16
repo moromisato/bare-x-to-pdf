@@ -504,14 +504,28 @@ impl Emitter<'_> {
                         pt(tb.inset.2),
                         pt(tb.inset.3)
                     );
-                    match tb.shape {
+                    match &tb.shape {
                         ShapeKind::Ellipse => format!(
                             "ellipse(width: {w}, height: {height}, {inset}, fill: {fill}, stroke: {stroke}, {body})"
                         ),
                         ShapeKind::RoundRect(radius) => format!(
                             "block(width: {w}, height: {height}, {inset}, fill: {fill}, stroke: {stroke}, radius: {}, {body})",
-                            pt(radius)
+                            pt(*radius)
                         ),
+                        ShapeKind::Polygon(points) => {
+                            let coords: Vec<String> = points
+                                .iter()
+                                .map(|(x, y)| {
+                                    let px = if drawing.flip_h { 1.0 - x } else { *x };
+                                    let py = if drawing.flip_v { 1.0 - y } else { *y };
+                                    format!("({}, {})", pt(px * drawing.width), pt(py * drawing.height))
+                                })
+                                .collect();
+                            format!(
+                                "box(width: {w}, height: {h}, place(top + left, polygon(fill: {fill}, stroke: {stroke}, {})) + place(top + left, block(width: {w}, height: {height}, {inset}, {body})))",
+                                coords.join(", ")
+                            )
+                        }
                         _ => format!(
                             "block(width: {w}, height: {height}, {inset}, fill: {fill}, stroke: {stroke}, {body})"
                         ),
