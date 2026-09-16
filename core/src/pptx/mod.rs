@@ -1,6 +1,10 @@
 pub(crate) mod color;
 mod text;
 
+pub(crate) fn map_bullet_pub(text: &str) -> String {
+    text::map_bullet(text)
+}
+
 use crate::error::Error;
 use crate::model::*;
 use crate::xml::{self, Element};

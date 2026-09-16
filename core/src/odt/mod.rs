@@ -1,0 +1,566 @@
+mod styles;
+
+use crate::error::Error;
+use crate::model::*;
+use crate::xml::{self, Element, Node};
+use std::collections::HashMap;
+use std::io::{Cursor, Read};
+use styles::{length, ListLevel, Styles};
+
+pub fn read(bytes: &[u8]) -> Result<Document, Error> {
+    let (content, styles_root, media) = if bytes.starts_with(b"PK") {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+            .map_err(|e| Error::new(format!("not an odt container: {e}")))?;
+        let content = entry(&mut archive, "content.xml")?
+            .ok_or_else(|| Error::new("odt has no content.xml"))?;
+        let styles_xml = entry(&mut archive, "styles.xml")?;
+        let mut media = HashMap::new();
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let name = file.name().to_string();
+            if name.starts_with("Pictures/") && !file.is_dir() {
+                let mut data = Vec::new();
+                file.read_to_end(&mut data)?;
+                if let Some(format) = ImageFormat::sniff(&data) {
+                    media.insert(name, ImageData { data, format });
+                }
+            }
+        }
+        (xml::parse(&content)?, styles_xml.as_deref().map(xml::parse).transpose()?, media)
+    } else {
+        let root = xml::parse(bytes)?;
+        (root.clone(), Some(root), HashMap::new())
+    };
+
+    let styles = Styles::parse(styles_root.as_ref(), &content);
+    let body = content
+        .child("body")
+        .and_then(|b| b.child("text"))
+        .ok_or_else(|| Error::new("odt has no office:text body"))?;
+
+    let reader = Reader {
+        styles: &styles,
+        media: &media,
+        counters: std::cell::RefCell::new(HashMap::new()),
+    };
+
+    let mut doc = Document {
+        default_tab: styles.default_tab,
+        ..Document::default()
+    };
+
+    let mut current_master = None::<String>;
+    let mut blocks: Vec<Block> = Vec::new();
+    for el in body.elements() {
+        if matches!(el.name.as_str(), "p" | "h") {
+            if let Some(master) = reader.master_page_of(el) {
+                if current_master.as_deref() != Some(master.as_str()) {
+                    if current_master.is_some() || !blocks.is_empty() {
+                        doc.sections.push(reader.section(current_master.as_deref(), std::mem::take(&mut blocks)));
+                    }
+                    current_master = Some(master);
+                }
+            }
+        }
+        reader.block(el, &mut blocks);
+    }
+    doc.sections.push(reader.section(current_master.as_deref(), blocks));
+    Ok(doc)
+}
+
+fn entry<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, name: &str) -> Result<Option<Vec<u8>>, Error> {
+    match archive.by_name(name) {
+        Ok(mut file) => {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)?;
+            Ok(Some(data))
+        }
+        Err(zip::result::ZipError::FileNotFound) => Ok(None),
+        Err(e) => Err(Error::new(format!("reading {name}: {e}"))),
+    }
+}
+
+struct Reader<'a> {
+    styles: &'a Styles,
+    media: &'a HashMap<String, ImageData>,
+    counters: std::cell::RefCell<HashMap<String, Vec<i64>>>,
+}
+
+impl Reader<'_> {
+    fn master_page_of(&self, p: &Element) -> Option<String> {
+        let style = p.attr("style-name")?;
+        self.styles.master_page(style)
+    }
+
+    fn section(&self, master: Option<&str>, blocks: Vec<Block>) -> Section {
+        let master = master
+            .and_then(|m| self.styles.master_pages.get(m))
+            .or_else(|| self.styles.master_pages.get("Standard"))
+            .or_else(|| self.styles.master_pages.values().next());
+        let mut section = Section {
+            blocks,
+            columns: 1,
+            column_gap: 0.0,
+            content_scale: 1.0,
+            ..Section::default()
+        };
+        if let Some(master) = master {
+            if let Some(layout) = self.styles.page_layouts.get(&master.layout) {
+                section.page = layout.page.clone();
+                section.columns = layout.columns.max(1);
+                section.column_gap = layout.column_gap;
+            }
+            if let Some(header) = &master.header {
+                let mut blocks = Vec::new();
+                for el in header.elements() {
+                    self.block(el, &mut blocks);
+                }
+                section.header_default = Some(blocks);
+            }
+            if let Some(footer) = &master.footer {
+                let mut blocks = Vec::new();
+                for el in footer.elements() {
+                    self.block(el, &mut blocks);
+                }
+                section.footer_default = Some(blocks);
+            }
+        }
+        section
+    }
+
+    fn blocks(&self, parent: &Element) -> Vec<Block> {
+        let mut out = Vec::new();
+        for el in parent.elements() {
+            self.block(el, &mut out);
+        }
+        out
+    }
+
+    fn block(&self, el: &Element, out: &mut Vec<Block>) {
+        match el.name.as_str() {
+            "p" | "h" => out.push(Block::Paragraph(self.paragraph(el, None, 0))),
+            "list" => self.list(el, None, 0, out),
+            "table" => out.push(Block::Table(self.table(el))),
+            "section" | "index-body" | "table-of-content" | "alphabetical-index" | "illustration-index"
+            | "bibliography" | "user-index" | "text-box" => {
+                for child in el.elements() {
+                    self.block(child, out);
+                }
+            }
+            "soft-page-break" | "sequence-decls" | "variable-decls" | "user-field-decls" | "forms"
+            | "tracked-changes" | "change" | "change-start" | "change-end" | "bookmark" | "bookmark-start"
+            | "bookmark-end" | "annotation" => {}
+            _ => {}
+        }
+    }
+
+    fn list(&self, el: &Element, inherited_style: Option<&str>, level: usize, out: &mut Vec<Block>) {
+        let style_name = el.attr("style-name").or(inherited_style);
+        if level == 0 && el.attr("continue-numbering") != Some("true") && el.attr("continue-list").is_none() {
+            if let Some(name) = style_name {
+                self.counters.borrow_mut().remove(name);
+            }
+        }
+        for item in el.elements() {
+            if !matches!(item.name.as_str(), "list-item" | "list-header") {
+                continue;
+            }
+            let is_header = item.name == "list-header";
+            let mut first = true;
+            for child in item.elements() {
+                match child.name.as_str() {
+                    "p" | "h" => {
+                        let label = if first && !is_header { style_name } else { None };
+                        let mut paragraph = self.paragraph(child, label, level);
+                        if first && is_header {
+                            paragraph.list = None;
+                        }
+                        if !first {
+                            paragraph.list = None;
+                        }
+                        first = false;
+                        out.push(Block::Paragraph(paragraph));
+                    }
+                    "list" => self.list(child, style_name, level + 1, out),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn paragraph(&self, el: &Element, list_style: Option<&str>, level: usize) -> Paragraph {
+        let style_name = el.attr("style-name");
+        let (mut props, base) = self.styles.paragraph(style_name);
+        let list_style_name = list_style
+            .map(str::to_owned)
+            .or_else(|| style_name.and_then(|s| self.styles.list_style_of(s)));
+
+        let list_level = list_style_name
+            .as_deref()
+            .and_then(|name| self.styles.list_level(name, level));
+        if let Some(lvl) = &list_level {
+            if let Some(left) = lvl.left {
+                props.indent_left = Some(left);
+            }
+            if let Some(hanging) = lvl.hanging {
+                props.indent_hanging = Some(hanging);
+                props.indent_first_line = Some(0.0);
+            }
+        }
+
+        let mut inlines = Vec::new();
+        let mut anchors = Vec::new();
+        self.inlines(el, &base, &mut inlines, &mut anchors);
+        trim_inlines(&mut inlines);
+
+        let mut mark = base.clone();
+        if let Some(last) = inlines.iter().rev().find_map(|i| match i {
+            Inline::Text { props, .. } => Some(props.clone()),
+            _ => None,
+        }) {
+            mark = last;
+        }
+
+        let list = match (&list_level, list_style_name.as_deref()) {
+            (Some(lvl), Some(name)) if list_style.is_some() => {
+                let text = self.label(name, level, lvl);
+                text.map(|text| ListLabel {
+                    text,
+                    props: {
+                        let mut p = base.clone();
+                        if let Some(rp) = &lvl.rpr {
+                            p.merge(rp);
+                        }
+                        p
+                    },
+                    suffix: lvl.suffix,
+                })
+            }
+            _ => None,
+        };
+
+        Paragraph {
+            props,
+            mark,
+            inlines,
+            anchors,
+            list,
+        }
+    }
+
+    fn label(&self, style: &str, level: usize, lvl: &ListLevel) -> Option<String> {
+        match &lvl.kind {
+            styles::LevelKind::Bullet(ch) => Some(ch.clone()),
+            styles::LevelKind::Number { format, prefix, suffix, start, display_levels } => {
+                let mut counters = self.counters.borrow_mut();
+                let values = counters.entry(style.to_string()).or_insert_with(|| vec![0; 10]);
+                if values[level] == 0 {
+                    values[level] = *start - 1;
+                }
+                values[level] += 1;
+                for deeper in level + 1..values.len() {
+                    values[deeper] = 0;
+                }
+                let mut parts = Vec::new();
+                let first = level + 1 - (*display_levels).min(level + 1);
+                for l in first..=level {
+                    let v = if values[l] == 0 { 1 } else { values[l] };
+                    let fmt = self
+                        .styles
+                        .list_level(style, l)
+                        .and_then(|x| match &x.kind {
+                            styles::LevelKind::Number { format, .. } => Some(format.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| format.clone());
+                    parts.push(crate::docx::format_number(v, &fmt));
+                }
+                Some(format!("{prefix}{}{suffix}", parts.join(".")))
+            }
+            styles::LevelKind::None => None,
+        }
+    }
+
+    fn inlines(&self, parent: &Element, base: &RunProps, out: &mut Vec<Inline>, anchors: &mut Vec<Anchor>) {
+        for node in &parent.children {
+            match node {
+                Node::Text(text) => {
+                    let collapsed = collapse(text);
+                    if !collapsed.is_empty() {
+                        out.push(Inline::Text { text: collapsed, props: base.clone() });
+                    }
+                }
+                Node::Element(el) => match el.name.as_str() {
+                    "span" => {
+                        let mut props = base.clone();
+                        if let Some(name) = el.attr("style-name") {
+                            props.merge(&self.styles.text(name, base.size.unwrap_or(12.0)));
+                        }
+                        self.inlines(el, &props, out, anchors);
+                    }
+                    "a" => self.inlines(el, base, out, anchors),
+                    "s" => {
+                        let count = el.attr("c").and_then(|c| c.parse::<usize>().ok()).unwrap_or(1);
+                        out.push(Inline::Text { text: " ".repeat(count), props: base.clone() });
+                    }
+                    "tab" => out.push(Inline::Tab),
+                    "line-break" => out.push(Inline::LineBreak),
+                    "page-number" => out.push(Inline::Field { kind: FieldKind::Page, props: base.clone() }),
+                    "page-count" => out.push(Inline::Field { kind: FieldKind::NumPages, props: base.clone() }),
+                    "note" => {
+                        if let Some(body) = el.child("note-body") {
+                            out.push(Inline::Footnote(self.blocks(body)));
+                        }
+                    }
+                    "frame" => self.frame(el, out, anchors),
+                    "soft-page-break" | "bookmark" | "bookmark-start" | "bookmark-end" | "reference-mark"
+                    | "reference-mark-start" | "reference-mark-end" | "annotation" | "annotation-end"
+                    | "change-start" | "change-end" | "change" | "alphabetical-index-mark" | "toc-mark"
+                    | "sequence-decls" => {}
+                    "sequence" | "date" | "time" | "author-name" | "title" | "subject" | "chapter"
+                    | "file-name" | "variable-set" | "variable-get" | "user-field-get" | "conditional-text"
+                    | "hidden-text" | "text-input" | "expression" | "database-display" | "placeholder"
+                    | "sender-firstname" | "sender-lastname" | "creator" | "initial-creator" | "description"
+                    | "keywords" | "meta-field" | "bibliography-mark" | "ruby" | "measure" | "word-count"
+                    | "page-variable-get" | "template-name" | "print-date" | "creation-date"
+                    | "modification-date" | "editing-cycles" | "editing-duration" | "user-defined"
+                    | "character-count" | "paragraph-count" | "table-count" | "image-count" | "object-count"
+                    | "page-continuation" => {
+                        let text = collapse(&el.text());
+                        if !text.is_empty() {
+                            out.push(Inline::Text { text, props: base.clone() });
+                        }
+                    }
+                    _ => self.inlines(el, base, out, anchors),
+                },
+            }
+        }
+    }
+
+    fn frame(&self, el: &Element, out: &mut Vec<Inline>, anchors: &mut Vec<Anchor>) {
+        let width = el.attr("svg:width").or(el.attr("width")).and_then(length);
+        let height = el.attr("svg:height").or(el.attr("height")).and_then(length);
+        let graphic = el.attr("style-name").map(|s| self.styles.graphic(s)).unwrap_or_default();
+
+        let content = if let Some(image) = el.child("image") {
+            let data = image
+                .attr("xlink:href")
+                .or(image.attr("href"))
+                .and_then(|href| self.media.get(href.trim_start_matches("./")))
+                .cloned()
+                .or_else(|| {
+                    image
+                        .child("binary-data")
+                        .and_then(|b| base64_decode(&b.text()))
+                        .and_then(|data| ImageFormat::sniff(&data).map(|format| ImageData { data, format }))
+                });
+            match data {
+                Some(image) => DrawingContent::Image(image),
+                None => DrawingContent::Placeholder,
+            }
+        } else if let Some(text_box) = el.child("text-box") {
+            let blocks = self.blocks(text_box);
+            DrawingContent::TextBox(TextBox {
+                blocks,
+                fill: graphic.fill,
+                stroke: graphic.stroke,
+                inset: graphic.padding,
+                auto_height: height.is_none() || text_box.attr("min-height").is_some(),
+                ..TextBox::default()
+            })
+        } else {
+            return;
+        };
+
+        let (Some(width), height) = (width, height.unwrap_or(0.0)) else { return };
+        let auto_height = matches!(&content, DrawingContent::TextBox(tb) if tb.auto_height);
+        let drawing = Drawing::new(width, if height <= 0.0 { 20.0 } else { height }, content);
+        let _ = auto_height;
+
+        let anchor_type = el.attr("text:anchor-type").or(el.attr("anchor-type")).unwrap_or("paragraph");
+        if anchor_type == "as-char" {
+            out.push(Inline::Drawing(drawing));
+            return;
+        }
+
+        let x = el.attr("svg:x").or(el.attr("x")).and_then(length).unwrap_or(0.0);
+        let y = el.attr("svg:y").or(el.attr("y")).and_then(length).unwrap_or(0.0);
+        let (href, vref) = match anchor_type {
+            "page" => (HRef::Page, VRef::Page),
+            _ => match (graphic.h_rel.as_str(), graphic.v_rel.as_str()) {
+                ("page", "page") => (HRef::Page, VRef::Page),
+                ("page", _) => (HRef::Page, VRef::Paragraph),
+                (_, "page") => (HRef::Margin, VRef::Page),
+                _ => (HRef::Margin, VRef::Paragraph),
+            },
+        };
+        let horizontal = match graphic.h_pos.as_str() {
+            "center" => HPosition::Align(href, HAlign::Center),
+            "right" => HPosition::Align(href, HAlign::Right),
+            "left" if x == 0.0 => HPosition::Align(href, HAlign::Left),
+            _ => HPosition::Offset(href, x),
+        };
+        anchors.push(Anchor {
+            drawing,
+            horizontal,
+            vertical: VPosition::Offset(vref, y),
+            wrap: graphic.wrap,
+            behind: graphic.behind,
+            dist_top: graphic.margins.0,
+            dist_bottom: graphic.margins.2,
+            dist_left: graphic.margins.1,
+            dist_right: graphic.margins.3,
+        });
+    }
+
+    fn table(&self, el: &Element) -> Table {
+        let mut table = Table {
+            cell_margins: CellMargins { top: Some(0.0), left: Some(2.7), bottom: Some(0.0), right: Some(2.7) },
+            ..Table::default()
+        };
+        if let Some(name) = el.attr("style-name") {
+            let props = self.styles.table(name);
+            table.indent = props.indent;
+        }
+        for col in el.elements() {
+            match col.name.as_str() {
+                "table-column" => self.columns(col, &mut table.columns),
+                "table-columns" | "table-header-columns" | "table-column-group" => {
+                    for c in col.elements() {
+                        self.columns(c, &mut table.columns);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for child in el.elements() {
+            match child.name.as_str() {
+                "table-row" => table.rows.push(self.row(child)),
+                "table-header-rows" | "table-rows" | "table-row-group" => {
+                    for row in child.children("table-row") {
+                        table.rows.push(self.row(row));
+                    }
+                }
+                _ => {}
+            }
+        }
+        if table.columns.is_empty() {
+            let count = table.rows.iter().map(|r| r.cells.iter().map(|c| c.span).sum::<usize>()).max().unwrap_or(1);
+            table.columns = vec![468.0 / count as f64; count];
+        }
+        table
+    }
+
+    fn columns(&self, col: &Element, out: &mut Vec<f64>) {
+        let repeat = col.attr("number-columns-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).min(256);
+        let width = col
+            .attr("style-name")
+            .and_then(|s| self.styles.column_width(s))
+            .unwrap_or(72.0);
+        for _ in 0..repeat {
+            out.push(width);
+        }
+    }
+
+    fn row(&self, tr: &Element) -> Row {
+        let mut row = Row::default();
+        if let Some(name) = tr.attr("style-name") {
+            let (height, exact) = self.styles.row_height(name);
+            row.height = height;
+            row.exact_height = exact;
+        }
+        let mut pending_vmerge: Vec<usize> = Vec::new();
+        let _ = &mut pending_vmerge;
+        for tc in tr.elements() {
+            match tc.name.as_str() {
+                "table-cell" => {
+                    let repeat = tc.attr("number-columns-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).min(64);
+                    for _ in 0..repeat {
+                        let mut cell = Cell {
+                            blocks: self.blocks(tc),
+                            span: tc.attr("number-columns-spanned").and_then(|v| v.parse().ok()).unwrap_or(1),
+                            ..Cell::default()
+                        };
+                        if tc.attr("number-rows-spanned").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1) > 1 {
+                            cell.vertical_merge = Some(VerticalMerge::Restart);
+                        }
+                        if let Some(name) = tc.attr("style-name") {
+                            let props = self.styles.cell(name);
+                            cell.borders = props.borders;
+                            cell.margins = props.margins;
+                            cell.shading = props.fill;
+                            cell.valign = props.valign;
+                        }
+                        row.cells.push(cell);
+                    }
+                }
+                "covered-table-cell" => {
+                    let repeat = tc.attr("number-columns-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).min(64);
+                    for _ in 0..repeat {
+                        row.cells.push(Cell {
+                            span: 1,
+                            vertical_merge: Some(VerticalMerge::Continue),
+                            ..Cell::default()
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        row
+    }
+}
+
+fn collapse(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut space = false;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            if !space {
+                out.push(' ');
+                space = true;
+            }
+        } else {
+            out.push(c);
+            space = false;
+        }
+    }
+    out
+}
+
+fn trim_inlines(inlines: &mut Vec<Inline>) {
+    if let Some(Inline::Text { text, .. }) = inlines.first_mut() {
+        let trimmed = text.trim_start().to_string();
+        *text = trimmed;
+    }
+    if let Some(Inline::Text { text, .. }) = inlines.last_mut() {
+        let trimmed = text.trim_end().to_string();
+        *text = trimmed;
+    }
+    inlines.retain(|i| !matches!(i, Inline::Text { text, .. } if text.is_empty()));
+}
+
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut buffer = 0u32;
+    let mut bits = 0;
+    for c in text.bytes() {
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            _ => continue,
+        } as u32;
+        buffer = (buffer << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    if out.is_empty() { None } else { Some(out) }
+}

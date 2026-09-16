@@ -584,8 +584,9 @@ pub enum VPosition {
     Align(VRef, VAnchorAlign),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Wrap {
+    #[default]
     None,
     TopAndBottom,
     Square,

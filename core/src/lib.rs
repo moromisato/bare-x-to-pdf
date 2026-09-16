@@ -1,6 +1,7 @@
 pub mod docx;
 pub mod error;
 pub mod model;
+pub mod odt;
 pub mod pdf;
 pub mod pptx;
 pub mod typst_backend;
@@ -20,8 +21,12 @@ pub struct Options<'a> {
 
 pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<Vec<u8>, Error> {
     match (from, to) {
-        ("docx", "pdf") => {
+        ("docx" | "docm" | "dotx" | "dotm", "pdf") => {
             let document = docx::read(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
+        ("odt" | "ott" | "fodt", "pdf") => {
+            let document = odt::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
         ("pptx", "pdf") => {

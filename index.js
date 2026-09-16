@@ -19,11 +19,20 @@ function defaultPdfiumPath() {
 
 const CONVERSIONS = {
   docx: ['pdf'],
+  docm: ['pdf'],
+  dotx: ['pdf'],
+  dotm: ['pdf'],
+  doc: ['pdf'],
+  dot: ['pdf'],
+  odt: ['pdf'],
+  ott: ['pdf'],
+  fodt: ['pdf'],
   pptx: ['pdf'],
   pdf: ['docx']
 }
 
-const OOXML_MARKERS = [
+const ZIP_MARKERS = [
+  { format: 'odt', marker: 'application/vnd.oasis.opendocument.text' },
   { format: 'docx', marker: 'word/' },
   { format: 'pptx', marker: 'ppt/' },
   { format: 'xlsx', marker: 'xl/' }
@@ -40,15 +49,21 @@ function detect(input) {
   for (const { format, bytes: magic } of SIGNATURES) {
     if (bytes.length < magic.length) continue
     if (!magic.every((b, i) => bytes[i] === b)) continue
-    if (format === 'docx') return detectOoxml(bytes) || 'docx'
+    if (format === 'docx') return detectZip(bytes) || 'docx'
     return format
   }
+  const head = Buffer.from(
+    bytes.buffer,
+    bytes.byteOffset,
+    Math.min(bytes.byteLength, 4096)
+  ).toString('latin1')
+  if (head.trimStart().startsWith('<?xml') && head.includes('office:document')) return 'fodt'
   return null
 }
 
-function detectOoxml(bytes) {
+function detectZip(bytes) {
   const names = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1')
-  for (const { format, marker } of OOXML_MARKERS) {
+  for (const { format, marker } of ZIP_MARKERS) {
     if (names.includes(marker)) return format
   }
   return null

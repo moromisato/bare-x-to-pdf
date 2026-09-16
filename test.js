@@ -19,7 +19,19 @@ test('lists supported conversions', (t) => {
   t.absent(converter.supports('pdf', 'pdf'))
   t.alike(
     converter.conversions().map((c) => `${c.from}>${c.to}`),
-    ['docx>pdf', 'pptx>pdf', 'pdf>docx']
+    [
+      'docx>pdf',
+      'docm>pdf',
+      'dotx>pdf',
+      'dotm>pdf',
+      'doc>pdf',
+      'dot>pdf',
+      'odt>pdf',
+      'ott>pdf',
+      'fodt>pdf',
+      'pptx>pdf',
+      'pdf>docx'
+    ]
   )
 })
 
