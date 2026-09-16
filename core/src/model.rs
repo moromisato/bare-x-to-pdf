@@ -59,6 +59,7 @@ pub struct Section {
     pub title_page: bool,
     pub page_start: Option<i64>,
     pub page_format: PageNumberFormat,
+    pub content_scale: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -379,6 +380,8 @@ pub struct Cell {
     pub borders: Borders,
     pub margins: CellMargins,
     pub valign: VAlign,
+    pub no_wrap: bool,
+    pub halign: Option<Align>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -471,6 +474,16 @@ pub enum ShapeKind {
     Ellipse,
     Line,
     Polygon(Vec<(f64, f64)>),
+    Path(Vec<PathCommand>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathCommand {
+    Move(f64, f64),
+    Line(f64, f64),
+    Quad(f64, f64, f64, f64),
+    Cubic(f64, f64, f64, f64, f64, f64),
+    Close,
 }
 
 #[derive(Debug, Clone)]

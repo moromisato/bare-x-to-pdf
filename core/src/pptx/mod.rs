@@ -1,4 +1,4 @@
-mod color;
+pub(crate) mod color;
 mod text;
 
 use crate::error::Error;
@@ -756,11 +756,13 @@ fn shape(
     };
     let stroke = line(sp_pr, style, &colors);
 
+    let custom = sp_pr.and_then(|p| p.child("custGeom")).and_then(custom_path);
     let geometry = sp_pr
         .and_then(|p| p.child("prstGeom"))
         .and_then(|g| g.attr("prst"))
         .unwrap_or("rect");
     let kind = match geometry {
+        _ if custom.is_some() => ShapeKind::Path(custom.unwrap()),
         "ellipse" => ShapeKind::Ellipse,
         "roundRect" => ShapeKind::RoundRect(placed.w.min(placed.h) * 0.16667),
         "line" | "straightConnector1" | "bentConnector3" => ShapeKind::Line,
@@ -1018,6 +1020,63 @@ fn parse_table(tbl: &Element, ctx: &SlideCtx) -> Table {
         table.rows.push(row);
     }
     table
+}
+
+fn custom_path(geom: &Element) -> Option<Vec<PathCommand>> {
+    let mut commands = Vec::new();
+    for path in geom.child("pathLst")?.children("path") {
+        let w = path.attr("w").and_then(|v| v.parse::<f64>().ok()).filter(|v| *v > 0.0).unwrap_or(1.0);
+        let h = path.attr("h").and_then(|v| v.parse::<f64>().ok()).filter(|v| *v > 0.0).unwrap_or(1.0);
+        let pt = |el: &Element| -> Option<(f64, f64)> {
+            let x = el.attr("x")?.parse::<f64>().ok()? / w;
+            let y = el.attr("y")?.parse::<f64>().ok()? / h;
+            Some((x, y))
+        };
+        let mut current = (0.0, 0.0);
+        for cmd in path.elements() {
+            let pts: Vec<(f64, f64)> = cmd.children("pt").filter_map(pt).collect();
+            match (cmd.name.as_str(), pts.as_slice()) {
+                ("moveTo", [p]) => {
+                    commands.push(PathCommand::Move(p.0, p.1));
+                    current = *p;
+                }
+                ("lnTo", [p]) => {
+                    commands.push(PathCommand::Line(p.0, p.1));
+                    current = *p;
+                }
+                ("quadBezTo", [c, p]) => {
+                    commands.push(PathCommand::Quad(c.0, c.1, p.0, p.1));
+                    current = *p;
+                }
+                ("cubicBezTo", [c1, c2, p]) => {
+                    commands.push(PathCommand::Cubic(c1.0, c1.1, c2.0, c2.1, p.0, p.1));
+                    current = *p;
+                }
+                ("arcTo", _) => {
+                    let angle = |name: &str| cmd.attr(name).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) / 60000.0;
+                    let rw = cmd.attr("wR").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) / w;
+                    let rh = cmd.attr("hR").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) / h;
+                    let start = angle("stAng").to_radians();
+                    let sweep = angle("swAng").to_radians();
+                    let cx = current.0 - rw * start.cos();
+                    let cy = current.1 - rh * start.sin();
+                    let steps = ((sweep.abs() / (std::f64::consts::PI / 8.0)).ceil() as usize).max(1);
+                    for i in 1..=steps {
+                        let a = start + sweep * i as f64 / steps as f64;
+                        current = (cx + rw * a.cos(), cy + rh * a.sin());
+                        commands.push(PathCommand::Line(current.0, current.1));
+                    }
+                }
+                ("close", _) => commands.push(PathCommand::Close),
+                _ => {}
+            }
+        }
+    }
+    if commands.iter().any(|c| matches!(c, PathCommand::Line(..) | PathCommand::Cubic(..) | PathCommand::Quad(..))) {
+        Some(commands)
+    } else {
+        None
+    }
 }
 
 fn preset_polygon(name: &str) -> Option<Vec<(f64, f64)>> {

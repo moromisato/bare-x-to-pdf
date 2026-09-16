@@ -99,7 +99,12 @@ impl Emitter<'_> {
         let _ = writeln!(self.out, "#metadata(none) <section-{index}>");
 
         let blocks = self.blocks(&section.blocks, false);
-        self.out.push_str(&blocks);
+        if section.content_scale > 0.0 && (section.content_scale - 1.0).abs() > 0.001 {
+            let percent = trim_num(section.content_scale * 100.0);
+            let _ = writeln!(self.out, "#scale(x: {percent}%, y: {percent}%, reflow: true)[{blocks}]");
+        } else {
+            self.out.push_str(&blocks);
+        }
     }
 
     fn margin_slot(&self, section: &Section, header: bool, index: usize) -> String {
@@ -526,6 +531,29 @@ impl Emitter<'_> {
                                 coords.join(", ")
                             )
                         }
+                        ShapeKind::Path(commands) => {
+                            let map = |x: f64, y: f64| {
+                                let px = if drawing.flip_h { 1.0 - x } else { x };
+                                let py = if drawing.flip_v { 1.0 - y } else { y };
+                                format!("({}, {})", pt(px * drawing.width), pt(py * drawing.height))
+                            };
+                            let parts: Vec<String> = commands
+                                .iter()
+                                .map(|c| match c {
+                                    PathCommand::Move(x, y) => format!("curve.move({})", map(*x, *y)),
+                                    PathCommand::Line(x, y) => format!("curve.line({})", map(*x, *y)),
+                                    PathCommand::Quad(cx, cy, x, y) => format!("curve.quad({}, {})", map(*cx, *cy), map(*x, *y)),
+                                    PathCommand::Cubic(x1, y1, x2, y2, x, y) => {
+                                        format!("curve.cubic({}, {}, {})", map(*x1, *y1), map(*x2, *y2), map(*x, *y))
+                                    }
+                                    PathCommand::Close => "curve.close(mode: \"straight\")".to_string(),
+                                })
+                                .collect();
+                            format!(
+                                "box(width: {w}, height: {h}, place(top + left, curve(fill: {fill}, stroke: {stroke}, {})) + place(top + left, block(width: {w}, height: {height}, {inset}, {body})))",
+                                parts.join(", ")
+                            )
+                        }
                         _ => format!(
                             "block(width: {w}, height: {height}, {inset}, fill: {fill}, stroke: {stroke}, {body})"
                         ),
@@ -647,6 +675,9 @@ impl Emitter<'_> {
                 let bottom = margins.bottom.unwrap_or(0.0);
 
                 let mut body = self.blocks(&cell.blocks, true);
+                if cell.no_wrap {
+                    body = format!("#box[{body}]");
+                }
                 if let (Some(height), false, true) = (row.height, row.exact_height, fixed_columns) {
                     body = format!("#minh({}, [{}])", pt(height), body);
                 }
@@ -690,9 +721,15 @@ impl Emitter<'_> {
                     pt(margins.left.unwrap_or(0.0)),
                     pt(margins.right.unwrap_or(0.0))
                 ));
+                let h = match cell.halign {
+                    Some(Align::Center) => "center",
+                    Some(Align::Right) => "right",
+                    _ => "left",
+                };
                 match cell.valign {
-                    VAlign::Center => args.push("align: left + horizon".into()),
-                    VAlign::Bottom => args.push("align: left + bottom".into()),
+                    VAlign::Center => args.push(format!("align: {h} + horizon")),
+                    VAlign::Bottom => args.push(format!("align: {h} + bottom")),
+                    VAlign::Top if h != "left" => args.push(format!("align: {h} + top")),
                     VAlign::Top => {}
                 }
 
