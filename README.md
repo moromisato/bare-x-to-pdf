@@ -155,6 +155,17 @@ both PDFs plus per-page PNGs of reference, ours and a diff (blue is reference
 only, red is ours only). The previous run's scores are shown for comparison and
 written to `bench/out/report.json`.
 
+`bare bench/text.js` (also `npm run bench:text`) checks the text layer of the
+PDFs the fidelity run produced: both engines' PDFs are extracted with
+bare-pdfium and compared with the words of the source document, read directly
+from the DOCX, ODT, FODT, PPTX or XLSX XML. It prints recall (source words
+found), order (longest common word sequence) and precision (extracted words
+that exist in the source) for each engine, plus the agreement between the two
+texts, and writes `bench/out/text-report.json` and the extracted texts beside
+each case. `scripts/timing.js ours|collabora <file,file,...>` measures module
+load and cold and warm conversion times in one process. `bench/report/` keeps
+the generated comparison pages.
+
 `scripts/pdf-to-png.js <file.pdf> [out-dir] [scale]` rasterises any PDF for a
 quick look and `bare scripts/convert.js <input> <output>` converts one file.
 Debugging aids: `SIMPLE_CONVERTER_DUMP_TYPST=<file>` writes the generated

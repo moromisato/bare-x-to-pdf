@@ -26,7 +26,8 @@
     "format": "prettier --write .",
     "lint": "prettier --check . && lunte",
     "test": "brittle-bare test.js",
-    "bench": "bare bench/run.js"
+    "bench": "bare bench/run.js",
+    "bench:text": "bare bench/text.js"
   },
   "license": "Apache-2.0",
   "prettier": "prettier-config-holepunch",
