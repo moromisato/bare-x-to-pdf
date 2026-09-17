@@ -75,3 +75,11 @@ fn pdf_to_docx_round_trip() {
     let again = simple_converter_core::convert(&docx, "docx", "pdf", &options());
     assert!(again.is_ok(), "fixed-layout docx should be readable: {:?}", again.err());
 }
+
+#[test]
+fn doc_debug_dump() {
+    let bytes = std::fs::read(root().join("bench/corpus/mixednumberings.doc")).unwrap();
+    let info = simple_converter_core::doc::debug(&bytes).unwrap();
+    std::fs::write(out_dir().join("mixednumberings-doc.txt"), &info).unwrap();
+    assert!(info.contains("pieces="));
+}

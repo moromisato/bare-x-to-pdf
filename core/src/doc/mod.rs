@@ -78,6 +78,43 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     Ok(doc)
 }
 
+pub fn debug(bytes: &[u8]) -> Result<String, Error> {
+    let mut cfb = cfb::CompoundFile::open(Cursor::new(bytes))
+        .map_err(|e| Error::new(format!("not a Word binary document: {e}")))?;
+    let word = read_stream(&mut cfb, "WordDocument")?;
+    let fib = Fib::parse(&word)?;
+    let table = read_stream(&mut cfb, if fib.which_table == 1 { "1Table" } else { "0Table" })?;
+    let data = read_stream(&mut cfb, "Data").unwrap_or_default();
+    let file = File { word, table, data, fib };
+    let pieces = file.pieces()?;
+    let fonts = file.fonts();
+    let styles = file.styles(&fonts)?;
+    let lists = file.lists(&fonts);
+    let mut out = format!(
+        "nFib={:#x} ccpText={} ccpHdd={} pieces={} fonts={:?} styles={} lists={} lfos={}\n",
+        file.fib.n_fib,
+        file.fib.ccp_text,
+        file.fib.ccp_hdd,
+        pieces.len(),
+        fonts,
+        styles.styles.len(),
+        lists.lists.len(),
+        lists.lfos.len()
+    );
+    for (lsid, def) in &lists.lists {
+        out.push_str(&format!("  list {lsid:#x}: {} levels, lvl0 nfc={} start={} text={:?} follow={}\n", def.levels.len(), def.levels.first().map(|l| l.nfc).unwrap_or(0), def.levels.first().map(|l| l.start).unwrap_or(0), def.levels.first().map(|l| l.text.clone()).unwrap_or_default(), def.levels.first().map(|l| l.follow).unwrap_or(0)));
+    }
+    for (i, lfo) in lists.lfos.iter().enumerate() {
+        out.push_str(&format!("  lfo {}: lsid={:#x} overrides={}\n", i + 1, lfo.lsid, lfo.overrides.len()));
+    }
+    for (i, style) in styles.styles.iter().enumerate().take(12) {
+        if let Some(s) = style {
+            out.push_str(&format!("  style {i}: {:?} kind={} base={} numbering={:?}\n", s.name, s.kind, s.base, s.ppr.numbering));
+        }
+    }
+    Ok(out)
+}
+
 fn read_stream<F: Read + std::io::Seek>(cfb: &mut cfb::CompoundFile<F>, name: &str) -> Result<Vec<u8>, Error> {
     let mut stream = cfb
         .open_stream(format!("/{name}"))
@@ -364,9 +401,9 @@ impl File {
             }
             let cb = sttb[pos] as usize;
             let ffn = &sttb[pos + 1..(pos + 1 + cb).min(sttb.len())];
-            let name = if ffn.len() > 40 {
+            let name = if ffn.len() > 39 {
                 let mut chars = Vec::new();
-                let mut i = 40;
+                let mut i = 39;
                 while i + 1 < ffn.len() {
                     let c = u16_at(ffn, i);
                     if c == 0 {
@@ -482,7 +519,7 @@ impl File {
 
     fn lists(&self, fonts: &[String]) -> Lists {
         let mut lists = HashMap::new();
-        let (fc, lcb) = self.fib.fc_lcb(74);
+        let (fc, lcb) = self.fib.fc_lcb(73);
         if let Some(plf) = self.table.get(fc as usize..(fc as usize + lcb as usize).min(self.table.len())) {
             let c_lst = u16_at(plf, 0) as usize;
             let mut defs = Vec::with_capacity(c_lst);
@@ -511,7 +548,7 @@ impl File {
         }
 
         let mut lfos = Vec::new();
-        let (fc, lcb) = self.fib.fc_lcb(75);
+        let (fc, lcb) = self.fib.fc_lcb(74);
         if let Some(plf) = self.table.get(fc as usize..(fc as usize + lcb as usize).min(self.table.len())) {
             let c_lfo = u32_at(plf, 0) as usize;
             let mut pos = 4;
@@ -887,6 +924,13 @@ impl Reader<'_> {
         }
         if !current.is_empty() {
             paragraphs.push(current);
+        }
+        if start >= self.file.fib.ccp_text && paragraphs.len() > 1 {
+            if let Some(last) = paragraphs.last() {
+                if last.len() == 1 && last[0].ch == '\r' {
+                    paragraphs.pop();
+                }
+            }
         }
 
         let mut blocks: Vec<Block> = Vec::new();

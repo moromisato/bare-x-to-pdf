@@ -656,13 +656,13 @@ fn parse_page_layout(el: &Element) -> PageLayout {
     }
     for (name, header) in [("header-style", true), ("footer-style", false)] {
         let Some(props) = el.child(name).and_then(|h| h.child("header-footer-properties")) else { continue };
-        let min_height = props.attr("min-height").and_then(length).unwrap_or(14.0);
+        let explicit = props.attr("min-height").and_then(length).or_else(|| props.attr("height").and_then(length));
         if header {
             let spacing = props.attr("margin-bottom").and_then(length).unwrap_or(0.0);
-            page.margin.top = page.margin.header + min_height + spacing;
+            page.margin.top = page.margin.header + explicit.unwrap_or(14.0 + spacing);
         } else {
             let spacing = props.attr("margin-top").and_then(length).unwrap_or(0.0);
-            page.margin.bottom = page.margin.footer + min_height + spacing;
+            page.margin.bottom = page.margin.footer + explicit.unwrap_or(14.0 + spacing);
         }
     }
     PageLayout { page, columns, column_gap: gap }
