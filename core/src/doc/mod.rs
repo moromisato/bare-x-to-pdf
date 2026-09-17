@@ -1277,6 +1277,7 @@ impl Reader<'_> {
             for sprm in SprmIter::new(row_papx) {
                 apply_table_sprm(&sprm, &mut tap);
             }
+            apply_table_borders(&mut tap);
             let mut row = Row { height: tap.height, exact_height: tap.exact, ..Row::default() };
             let cells = &row_cells[..row_cells.len() - 1];
             if left_edge.is_none() {
@@ -1377,6 +1378,24 @@ struct Tap {
     exact: bool,
     gap_half: f64,
     borders_default: bool,
+    table_borders: Option<[BorderSide; 6]>,
+}
+
+fn apply_table_borders(tap: &mut Tap) {
+    let Some([top, left, bottom, right, _inside_h, inside_v]) = tap.table_borders else { return };
+    let count = tap.cells.len();
+    for (i, tc) in tap.cells.iter_mut().enumerate() {
+        let own = [tc.borders.top, tc.borders.left, tc.borders.bottom, tc.borders.right]
+            .iter()
+            .any(|b| matches!(b, BorderSide::Line { .. }));
+        if own {
+            continue;
+        }
+        tc.borders.top = top;
+        tc.borders.bottom = bottom;
+        tc.borders.left = if i == 0 { left } else { inside_v };
+        tc.borders.right = if i + 1 == count { right } else { inside_v };
+    }
 }
 
 fn apply_table_sprm(sprm: &Sprm, tap: &mut Tap) {
@@ -1430,17 +1449,7 @@ fn apply_table_sprm(sprm: &Sprm, tap: &mut Tap) {
             }
             let size = if sprm.opcode == 0xD605 { 4 } else { 8 };
             let read = |i: usize| if size == 4 { brc80(op, i * 4) } else { brc(op, i * 8) };
-            let (top, left, bottom, right, inside_h, inside_v) = (read(0), read(1), read(2), read(3), read(4), read(5));
-            let count = tap.cells.len();
-            for (i, tc) in tap.cells.iter_mut().enumerate() {
-                let first = i == 0;
-                let last = i + 1 == count;
-                if tc.borders.top == BorderSide::Unset { tc.borders.top = top; }
-                if tc.borders.bottom == BorderSide::Unset { tc.borders.bottom = bottom; }
-                if tc.borders.left == BorderSide::Unset { tc.borders.left = if first { left } else { inside_v }; }
-                if tc.borders.right == BorderSide::Unset { tc.borders.right = if last { right } else { inside_v }; }
-            }
-            let _ = inside_h;
+            tap.table_borders = Some([read(0), read(1), read(2), read(3), read(4), read(5)]);
             tap.borders_default = false;
         }
         0xD609 | 0xD612 | 0xD616 | 0xD617 => {
