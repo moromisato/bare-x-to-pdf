@@ -22,7 +22,7 @@ order:
 
 [FORMATS.md](FORMATS.md) lists every import filter bare-collabora ships and
 what it would take to render each one here. PDF to DOCX also exists
-(fixed-layout output) and stays, but it is no longer the focus. Spreadsheets, plain text and Markdown are deliberately out of scope.
+(fixed-layout output) and stays, but it is no longer the focus. Plain text and Markdown are deliberately out of scope.
 
 The goal is faithful output, not pixel identity with Office. Fidelity is
 measured, not guessed: `bench/` converts a corpus with this library and with
