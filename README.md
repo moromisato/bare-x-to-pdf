@@ -100,10 +100,16 @@ rendered by PDFium into one background picture per page. Word and LibreOffice
 open the result with the original layout intact; it is meant for reading and
 light editing, not for reflowing.
 
+Tracked changes are imported as accepted: insertions and moved-to text stay,
+deletions and moved-from text go, and a paragraph whose mark is deleted joins
+the paragraph after it. Comments are dropped. Charts, SmartArt and embedded
+objects reserve their space as a light grey placeholder so the rest of the
+page keeps its position. Double borders draw as two strokes with the gap
+between them, as in Writer.
+
 Not yet handled: tabs in the middle of a line (approximated with the default
 tab width), text wrapping tightly around pictures wider than half the text
-area, tracked changes, comments, charts and SmartArt, embedded fonts in either
-direction, WordArt text warps, double border lines drawn as two strokes,
+area, chart contents, embedded fonts in either direction, WordArt text warps,
 floating shapes in DOC input, and Writer's chapter numbering of Word heading
 styles.
 

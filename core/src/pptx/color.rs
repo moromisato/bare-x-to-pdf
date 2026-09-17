@@ -141,18 +141,29 @@ fn apply_modifiers(color: Color, el: &Element) -> Color {
             ("hueMod", Some(v)) => h = (h * v) % 360.0,
             ("tint", Some(v)) => {
                 let c = rgb.unwrap_or_else(|| from_hsl(h, s, l));
-                let mix = |x: u8| (255.0 - (255.0 - x as f64) * v).round() as u8;
+                let mix = |x: u8| to_srgb(1.0 - (1.0 - to_linear(x)) * v);
                 rgb = Some(Color(mix(c.0), mix(c.1), mix(c.2)));
             }
             ("shade", Some(v)) => {
                 let c = rgb.unwrap_or_else(|| from_hsl(h, s, l));
-                let mix = |x: u8| (x as f64 * v).round() as u8;
+                let mix = |x: u8| to_srgb(to_linear(x) * v);
                 rgb = Some(Color(mix(c.0), mix(c.1), mix(c.2)));
             }
             _ => {}
         }
     }
     rgb.unwrap_or_else(|| from_hsl(h, s, l))
+}
+
+fn to_linear(x: u8) -> f64 {
+    let c = x as f64 / 255.0;
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+fn to_srgb(v: f64) -> u8 {
+    let v = v.clamp(0.0, 1.0);
+    let c = if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+    (c * 255.0).round() as u8
 }
 
 fn preset(name: &str) -> Option<Color> {

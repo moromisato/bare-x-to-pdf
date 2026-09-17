@@ -72,7 +72,7 @@ impl Emitter<'_> {
         );
         let _ = writeln!(
             self.out,
-            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let lbl(label, x0, lft, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = {{ let c = (stops + (lft,)).filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= lft {{ lft + (calc.floor((end - lft) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, align(left, label)) }}"
+            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let dbl(t, b, l, r, it, ib, il, ir, body) = layout(size => {{ let hh = measure(width: size.width, body).height; let w = size.width + il + ir; let h = hh + it + ib; if t != none {{ place(top + left, dx: -il, dy: -it + t.at(0) * 5 / 6, line(length: w, stroke: t.at(0) / 3 + t.at(1))) }}; if b != none {{ place(top + left, dx: -il, dy: hh + ib - b.at(0) * 5 / 6, line(length: w, stroke: b.at(0) / 3 + b.at(1))) }}; if l != none {{ place(top + left, dx: -il + l.at(0) * 5 / 6, dy: -it, line(angle: 90deg, length: h, stroke: l.at(0) / 3 + l.at(1))) }}; if r != none {{ place(top + left, dx: size.width + ir - r.at(0) * 5 / 6, dy: -it, line(angle: 90deg, length: h, stroke: r.at(0) / 3 + r.at(1))) }}; body }})\n#let lbl(label, x0, lft, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = {{ let c = (stops + (lft,)).filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= lft {{ lft + (calc.floor((end - lft) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, align(left, label)) }}"
         );
     }
 
@@ -496,14 +496,29 @@ impl Emitter<'_> {
                 pad_left -= inset_left;
                 right -= inset_right;
             }
+            let inset_top = inset_for(top, space.top);
+            let inset_bottom = inset_for(bottom, space.bottom);
+            if [top, bottom, b.left, b.right].iter().any(is_double) {
+                expr = format!(
+                    "dbl({}, {}, {}, {}, {}, {}, {}, {}, {expr})",
+                    double_side(top),
+                    double_side(bottom),
+                    double_side(b.left),
+                    double_side(b.right),
+                    pt(inset_top),
+                    pt(inset_bottom),
+                    pt(inset_left),
+                    pt(inset_right)
+                );
+            }
             expr = format!(
                 "block(width: 100%, fill: {fill}, stroke: (top: {}, bottom: {}, left: {}, right: {}), inset: (top: {}, bottom: {}, left: {}, right: {}), {expr})",
                 stroke(top),
                 stroke(bottom),
                 stroke(b.left),
                 stroke(b.right),
-                pt(inset_for(top, space.top)),
-                pt(inset_for(bottom, space.bottom)),
+                pt(inset_top),
+                pt(inset_bottom),
                 pt(inset_left),
                 pt(inset_right)
             );
@@ -939,7 +954,7 @@ impl Emitter<'_> {
             DrawingContent::Table(table) => {
                 format!("block(width: {w}, {})", self.table_expr(table))
             }
-            DrawingContent::Placeholder => format!("box(width: {w}, height: {h})"),
+            DrawingContent::Placeholder => format!("rect(width: {w}, height: {h}, fill: rgb(\"#f2f2f2\"), stroke: 0.5pt + rgb(\"#bfbfbf\"))"),
         };
         if drawing.rotation.abs() > 0.01 {
             expr = format!("rotate({}deg, reflow: false, {expr})", trim_num(drawing.rotation));
@@ -1117,6 +1132,19 @@ impl Emitter<'_> {
                     pt(margins.left.unwrap_or(0.0)),
                     pt(margins.right.unwrap_or(0.0))
                 ));
+                if borders.iter().any(|(_, side)| is_double(side)) {
+                    body = format!(
+                        "#dbl({}, {}, {}, {}, {}, {}, {}, {})[{body}]",
+                        double_side(borders[0].1),
+                        double_side(borders[1].1),
+                        double_side(borders[2].1),
+                        double_side(borders[3].1),
+                        pt(top + border_top),
+                        pt(bottom),
+                        pt(margins.left.unwrap_or(0.0)),
+                        pt(margins.right.unwrap_or(0.0))
+                    );
+                }
                 let h = match cell.halign {
                     Some(Align::Center) => "center",
                     Some(Align::Right) => "right",
@@ -1250,12 +1278,24 @@ fn array(items: &[f64]) -> String {
     }
 }
 
+fn is_double(side: &BorderSide) -> bool {
+    matches!(side, BorderSide::Line { style: LineStyle::Double, .. })
+}
+
+fn double_side(side: BorderSide) -> String {
+    match side {
+        BorderSide::Line { width, color, style: LineStyle::Double } => format!("({}, rgb({}))", pt(width), typst_str(&color.hex())),
+        _ => "none".to_string(),
+    }
+}
+
 fn stroke(side: BorderSide) -> String {
     match side {
         BorderSide::Line { width, color, style } => match style {
             LineStyle::Dotted => format!("(paint: rgb({}), thickness: {}, dash: \"dotted\")", typst_str(&color.hex()), pt(width)),
             LineStyle::Dashed => format!("(paint: rgb({}), thickness: {}, dash: \"dashed\")", typst_str(&color.hex()), pt(width)),
-            _ => format!("{} + rgb({})", pt(width), typst_str(&color.hex())),
+            LineStyle::Double => format!("{} + rgb({})", pt(width / 3.0), typst_str(&color.hex())),
+            LineStyle::Solid => format!("{} + rgb({})", pt(width), typst_str(&color.hex())),
         },
         _ => "none".to_string(),
     }

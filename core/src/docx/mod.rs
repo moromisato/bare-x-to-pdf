@@ -112,6 +112,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
 
     let mut blocks = Vec::new();
     let mut previous: Option<Section> = None;
+    let mut joined: Option<Paragraph> = None;
     for el in body.elements() {
         match el.name.as_str() {
             "p" => {
@@ -119,6 +120,13 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
                 let sect = el.child("pPr").and_then(|p| p.child("sectPr"));
                 if sect.is_some() && paragraph.inlines.is_empty() {
                     paragraph.list = None;
+                }
+                if let Some(previous) = joined.take() {
+                    prepend_paragraph(previous, &mut paragraph);
+                }
+                if mark_deleted(el) && sect.is_none() {
+                    joined = Some(paragraph);
+                    continue;
                 }
                 blocks.push(Block::Paragraph(paragraph));
                 if let Some(sect) = sect {
@@ -133,6 +141,9 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
             "sectPr" => {}
             _ => blocks.extend(reader.blocks_of(el)),
         }
+    }
+    if let Some(paragraph) = joined {
+        blocks.push(Block::Paragraph(paragraph));
     }
     let last = match body.child("sectPr") {
         Some(sect) => build_section(&mut archive, &styles, &theme, &targets, sect, blocks, previous.as_ref())?,
@@ -298,18 +309,32 @@ impl Reader<'_> {
 
     fn blocks(&self, parent: &Element) -> Vec<Block> {
         let mut blocks = Vec::new();
+        let mut joined: Option<Paragraph> = None;
         for el in parent.elements() {
             match el.name.as_str() {
-                "p" => blocks.push(Block::Paragraph(self.paragraph(el))),
+                "p" => {
+                    let mut paragraph = self.paragraph(el);
+                    if let Some(previous) = joined.take() {
+                        prepend_paragraph(previous, &mut paragraph);
+                    }
+                    if mark_deleted(el) {
+                        joined = Some(paragraph);
+                    } else {
+                        blocks.push(Block::Paragraph(paragraph));
+                    }
+                }
                 "tbl" => blocks.push(Block::Table(self.table(el))),
                 "sdt" => {
                     if let Some(content) = el.child("sdtContent") {
                         blocks.extend(self.blocks(content));
                     }
                 }
-                "ins" | "customXml" | "smartTag" => blocks.extend(self.blocks(el)),
+                "ins" | "customXml" | "smartTag" | "moveTo" => blocks.extend(self.blocks(el)),
                 _ => {}
             }
+        }
+        if let Some(paragraph) = joined {
+            blocks.push(Block::Paragraph(paragraph));
         }
         blocks
     }
@@ -919,6 +944,22 @@ fn css_length(value: &str) -> Option<f64> {
         "pc" => number * 12.0,
         _ => return None,
     })
+}
+
+fn mark_deleted(paragraph: &Element) -> bool {
+    paragraph
+        .child("pPr")
+        .and_then(|p| p.child("rPr"))
+        .is_some_and(|r| r.child("del").is_some() || r.child("moveFrom").is_some())
+}
+
+fn prepend_paragraph(previous: Paragraph, paragraph: &mut Paragraph) {
+    let mut inlines = previous.inlines;
+    inlines.extend(std::mem::take(&mut paragraph.inlines));
+    paragraph.inlines = inlines;
+    let mut anchors = previous.anchors;
+    anchors.extend(std::mem::take(&mut paragraph.anchors));
+    paragraph.anchors = anchors;
 }
 
 pub(crate) fn parse_border_side(side: &Element) -> Option<BorderSide> {

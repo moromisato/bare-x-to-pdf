@@ -231,8 +231,13 @@ fn read_drawings<R: Read + std::io::Seek>(
             if width <= 0.0 || height <= 0.0 {
                 continue;
             }
-            let Some(shape) = anchor.elements().find(|e| matches!(e.name.as_str(), "sp" | "pic" | "cxnSp")) else { continue };
-            if let Some(content) = simple_shape(shape, width, height, theme, &media) {
+            let Some(shape) = anchor.elements().find(|e| matches!(e.name.as_str(), "sp" | "pic" | "cxnSp" | "graphicFrame")) else { continue };
+            let content = if shape.name == "graphicFrame" {
+                Some(DrawingContent::Placeholder)
+            } else {
+                simple_shape(shape, width, height, theme, &media)
+            };
+            if let Some(content) = content {
                 drawings.push(SheetDrawing { x, y, width, height, content });
             }
         }

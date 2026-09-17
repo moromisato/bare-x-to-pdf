@@ -1681,6 +1681,7 @@ fn apply_character_sprm(sprm: &Sprm, props: &mut RunProps, fonts: &[String], sty
         0x4A43 => props.size = Some(sprm.word() as f64 / 2.0),
         0x8840 => props.letter_spacing = Some(sprm.word() as i16 as f64 / 20.0),
         0x484B => props.kerning = Some(sprm.word() != 0),
+        0x0800 => props.hidden = Some(sprm.byte() != 0),
         0x6865 => {
             let side = brc80(sprm.operand, 0);
             let space = sprm.operand.get(3).map(|s| (s & 0x1F) as f64).unwrap_or(0.0);

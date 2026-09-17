@@ -501,6 +501,8 @@ impl Reader<'_> {
                 min_height: text_box.attr("fo:min-height").or(text_box.attr("min-height")).and_then(length),
                 ..TextBox::default()
             })
+        } else if el.child("object").is_some() || el.child("object-ole").is_some() || el.child("plugin").is_some() {
+            DrawingContent::Placeholder
         } else {
             return;
         };

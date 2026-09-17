@@ -944,6 +944,8 @@ fn graphic_frame(el: &Element, transform: &Transform, ctx: &SlideCtx, out: &mut 
     if let Some(tbl) = data.child("tbl") {
         let table = parse_table(tbl, ctx);
         out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, DrawingContent::Table(table), placed.rot, false, false, false));
+    } else if data.attr("uri").is_some_and(|u| u.contains("/chart") || u.contains("/diagram")) {
+        out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, DrawingContent::Placeholder, placed.rot, false, false, false));
     }
 }
 
