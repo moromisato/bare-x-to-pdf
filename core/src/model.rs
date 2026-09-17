@@ -610,7 +610,42 @@ pub enum DrawingContent {
     Image(ImageData),
     TextBox(TextBox),
     Table(Table),
-    Placeholder,
+    Placeholder(Option<String>),
+    Chart(Chart),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChartKind {
+    Column,
+    Bar,
+    Line,
+    Pie,
+    Area,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChartSeries {
+    pub name: Option<String>,
+    pub values: Vec<Option<f64>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Chart {
+    pub title: Option<String>,
+    pub kind: ChartKind,
+    pub categories: Vec<String>,
+    pub series: Vec<ChartSeries>,
+    pub legend: Option<LegendPos>,
+    pub gap_width: f64,
+    pub markers: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LegendPos {
+    Right,
+    Left,
+    Top,
+    Bottom,
 }
 
 #[derive(Debug, Clone)]
