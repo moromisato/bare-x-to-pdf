@@ -1,9 +1,21 @@
-# simple-converter
+# bare-x-to-pdf
 
 Office documents to PDF for [Bare](https://github.com/holepunchto/bare), in a
 native addon roughly ten times smaller than `bare-collabora`. The engine is
 written in Rust and lays pages out with [Typst](https://typst.app); PDFs are
 read with [PDFium](https://pdfium.googlesource.com/pdfium/).
+
+The `x` is every format the library reads into a PDF today:
+
+| Family           | Extensions                        |
+| ---------------- | --------------------------------- |
+| Word (OOXML)     | `.docx`, `.docm`, `.dotx`, `.dotm` |
+| Word 97–2003     | `.doc`, `.dot`                    |
+| OpenDocument Text | `.odt`, `.ott`, `.fodt`          |
+| PowerPoint       | `.pptx`                           |
+| Excel            | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
+
+PDF to `.docx` (fixed-layout output) also exists, in the other direction.
 
 ## Direction
 
@@ -31,7 +43,7 @@ measured, not guessed: `bench/` converts a corpus with this library and with
 ## Usage
 
 ```js
-const converter = require('simple-converter')
+const converter = require('bare-x-to-pdf')
 
 const pdf = converter.convert(docxBytes, { to: 'pdf' })
 const docx = converter.convert(pdfBytes, { to: 'docx' })
