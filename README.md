@@ -76,7 +76,10 @@ DOCX to PDF reads the document into a flow model and hands it to Typst.
 - Fonts: Word families are mapped onto the bundled metric-compatible set in
   `fonts/` (Liberation for Arial, Times New Roman and Courier New, Carlito for
   Calibri, Caladea for Cambria). Line heights use the same hhea metrics that
-  Word and LibreOffice use, so line pitch and baselines match.
+  Word and LibreOffice use, so line pitch and baselines match. The Carlito and
+  Caladea files are the versions LibreOffice bundles, kept in the repository
+  because newer Google Fonts releases changed their vertical metrics;
+  `scripts/fetch-fonts.sh` only refreshes the Liberation family.
 
 PDF to DOCX produces a fixed-layout document: every word becomes a text box
 anchored to its page position with the original font name, size, weight, style

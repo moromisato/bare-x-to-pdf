@@ -12,16 +12,4 @@ tar -xzf "$tmp/liberation.tar.gz" -C "$tmp"
 cp "$tmp"/liberation-fonts-ttf-*/Liberation{Sans,Serif,Mono}-{Regular,Bold,Italic,BoldItalic}.ttf "$dest/"
 cp "$tmp"/liberation-fonts-ttf-*/LICENSE "$dest/LICENSE.liberation"
 
-for family in carlito caladea; do
-  case $family in
-    carlito) name=Carlito ;;
-    caladea) name=Caladea ;;
-  esac
-  for style in Regular Bold Italic BoldItalic; do
-    curl -fsSL -o "$dest/$name-$style.ttf" \
-      "https://github.com/google/fonts/raw/main/ofl/$family/$name-$style.ttf"
-  done
-  curl -fsSL -o "$dest/LICENSE.$family" "https://github.com/google/fonts/raw/main/ofl/$family/OFL.txt"
-done
-
 ls -la "$dest"
