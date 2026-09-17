@@ -300,6 +300,7 @@ pub struct RunProps {
     pub hidden: Option<bool>,
     pub letter_spacing: Option<f64>,
     pub kerning: Option<bool>,
+    pub border: Option<(BorderSide, f64)>,
 }
 
 impl RunProps {
@@ -320,6 +321,7 @@ impl RunProps {
         merge(&mut self.hidden, other.hidden);
         merge(&mut self.letter_spacing, other.letter_spacing);
         merge(&mut self.kerning, other.kerning);
+        merge(&mut self.border, other.border);
     }
 }
 

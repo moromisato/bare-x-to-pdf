@@ -646,6 +646,9 @@ impl Emitter<'_> {
         }
 
         let mut expr = format!("text({}, {})", args.join(", "), content);
+        if let Some((side @ BorderSide::Line { width, .. }, space)) = props.border {
+            expr = format!("box(stroke: {}, inset: {}, {expr})", stroke(side), pt(space + width));
+        }
         if props.underline == Some(true) {
             expr = format!("underline({expr})");
         }

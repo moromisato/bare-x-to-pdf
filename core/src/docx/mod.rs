@@ -921,26 +921,29 @@ fn css_length(value: &str) -> Option<f64> {
     })
 }
 
+pub(crate) fn parse_border_side(side: &Element) -> Option<BorderSide> {
+    Some(match side.attr("val")? {
+        "nil" | "none" => BorderSide::None,
+        val => BorderSide::Line {
+            width: side
+                .attr("sz")
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .map(|v| (v / 8.0).max(0.25))
+                .unwrap_or(0.5),
+            color: side
+                .attr("color")
+                .filter(|c| *c != "auto")
+                .and_then(Color::parse_hex)
+                .unwrap_or(Color(0, 0, 0)),
+            style: LineStyle::from_name(val),
+        },
+    })
+}
+
 pub(crate) fn parse_borders(el: &Element) -> Borders {
     let mut borders = Borders::default();
     for side in el.elements() {
-        let value = match side.attr("val") {
-            None => continue,
-            Some("nil") | Some("none") => BorderSide::None,
-            Some(_) => BorderSide::Line {
-                width: side
-                    .attr("sz")
-                    .and_then(|v| v.trim().parse::<f64>().ok())
-                    .map(|v| (v / 8.0).max(0.25))
-                    .unwrap_or(0.5),
-                color: side
-                    .attr("color")
-                    .filter(|c| *c != "auto")
-                    .and_then(Color::parse_hex)
-                    .unwrap_or(Color(0, 0, 0)),
-                style: LineStyle::from_name(side.attr("val").unwrap_or("")),
-            },
-        };
+        let Some(value) = parse_border_side(side) else { continue };
         match side.name.as_str() {
             "top" => borders.top = value,
             "left" | "start" => borders.left = value,
