@@ -1000,8 +1000,8 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             content_scale: 1.0,
             ..Section::default()
         };
-        section.header_default = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
-        section.footer_default = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
+        section.header_default = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale));
+        section.footer_default = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale));
         return vec![section];
     }
     let printable_w = page.width - page.margin_left - page.margin_right;
@@ -1050,8 +1050,8 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
         }
     }
 
-    let header = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
-    let footer = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
+    let header = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale));
+    let footer = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale));
 
     let mut sections = Vec::new();
     for (rg, cg) in order {
@@ -1308,15 +1308,13 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
     table
 }
 
-fn header_footer(code: &str, sheet_name: &str, width: f64, base: &RunProps) -> Vec<Block> {
+fn header_footer(code: &str, sheet_name: &str, width: f64, base: &RunProps, scale: f64) -> Vec<Block> {
     let mut parts: [String; 3] = [String::new(), String::new(), String::new()];
     let mut current = 1usize;
     let mut chars = code.chars().peekable();
     let mut fields: [Vec<Inline>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut props = base.clone();
-    if props.size.is_none() {
-        props.size = Some(10.0);
-    }
+    props.size = Some(props.size.unwrap_or(10.0) * scale);
     let flush = |parts: &mut [String; 3], fields: &mut [Vec<Inline>; 3], current: usize, props: &RunProps| {
         if !parts[current].is_empty() {
             fields[current].push(Inline::Text { text: std::mem::take(&mut parts[current]), props: props.clone() });
@@ -1362,7 +1360,7 @@ fn header_footer(code: &str, sheet_name: &str, width: f64, base: &RunProps) -> V
                 }
                 flush(&mut parts, &mut fields, current, &props);
                 if let Ok(size) = digits.parse::<f64>() {
-                    props.size = Some(size);
+                    props.size = Some(size * scale);
                 }
             }
             Some(_) => {}
