@@ -547,6 +547,20 @@ impl Emitter<'_> {
         }
     }
 
+    fn first_line_height(&self, blocks: &[Block]) -> Option<f64> {
+        let props = blocks.iter().find_map(|b| match b {
+            Block::Paragraph(p) => p.inlines.iter().find_map(|i| match i {
+                Inline::Text { props, text } if !text.is_empty() => Some(props),
+                _ => None,
+            }),
+            _ => None,
+        })?;
+        let size = props.size.unwrap_or(DEFAULT_SIZE);
+        let m = self.fonts.metrics(&self.family(props), props.bold == Some(true), props.italic == Some(true));
+        let below = if self.doc.cell_metrics { m.descender } else { m.descender + m.line_gap };
+        Some((m.ascender + below) * size)
+    }
+
     fn paragraph_line_height(&self, p: &Paragraph, inlines: &[&Inline]) -> Option<f64> {
         if self.doc.fixed_line_metrics {
             return None;
@@ -587,7 +601,7 @@ impl Emitter<'_> {
             .fonts
             .metrics(family, props.bold == Some(true), props.italic == Some(true));
         let line = m.line_height();
-        let natural_below = m.descender + m.line_gap;
+        let natural_below = if self.doc.cell_metrics { m.descender } else { m.descender + m.line_gap };
         let _ = empty_line;
         let (above, below) = match spacing {
             LineSpacing::Multiple(mult) if mult >= 1.0 => {
@@ -1033,8 +1047,13 @@ impl Emitter<'_> {
 
                 let mut margins = defaults;
                 margins.merge(&cell.margins);
-                let top = margins.top.unwrap_or(0.0);
+                let mut top = margins.top.unwrap_or(0.0);
                 let bottom = margins.bottom.unwrap_or(0.0);
+                if row.exact_height {
+                    if let (Some(height), Some(line)) = (row.height, self.first_line_height(&cell.blocks)) {
+                        top = top.min((height - bottom - line).max(0.0));
+                    }
+                }
 
                 let mut body = self.blocks(&cell.blocks, true);
                 if let (Some(shift), false) = (cell.overflow_shift, body.trim().is_empty()) {

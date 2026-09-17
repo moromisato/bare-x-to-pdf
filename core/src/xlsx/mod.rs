@@ -68,6 +68,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     let mut doc = Document {
         default_tab: 36.0,
         additive_spacing: true,
+        cell_metrics: true,
         ..Document::default()
     };
 
@@ -86,6 +87,20 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         let root = xml::parse(&data)?;
         let name = sheet.attr("name").unwrap_or("Sheet").to_string();
         let mut parsed = parse_sheet(&root, &styles, &shared, print_areas.get(&index).map(String::as_str));
+        let default_height = parsed.default_row_height;
+        for row in parsed.rows.values_mut() {
+            if row.height.is_none() {
+                let largest = row
+                    .cells
+                    .values()
+                    .map(|c| styles.font(styles.xf(c.style).font).size.unwrap_or(10.0))
+                    .fold(0.0, f64::max);
+                let needed = largest * 1.117 + 2.0;
+                if largest > styles.font(0).size.unwrap_or(10.0) + 0.01 && needed > default_height {
+                    row.height = Some(needed);
+                }
+            }
+        }
         parsed.drawings = read_drawings(&mut archive, path, &parsed, &theme)?;
         for drawing in &parsed.drawings {
             let (col, row) = cell_at(&parsed, drawing.x + drawing.width, drawing.y + drawing.height);
@@ -626,6 +641,7 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
                 .map(|b| b + 0.71)
         })
         .unwrap_or(8.43);
+    let digit = digit_width(styles.font(0));
     let default_row_height = format_pr
         .and_then(|f| f.attr("defaultRowHeight"))
         .and_then(|v| v.parse::<f64>().ok())
@@ -717,8 +733,8 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
         let spec = col_specs.iter().find(|(min, max, _, _)| c >= *min && c <= *max);
         match spec {
             Some((_, _, _, true)) => 0.0,
-            Some((_, _, w, _)) => chars_to_pt(*w),
-            None => chars_to_pt(default_col_chars),
+            Some((_, _, w, _)) => chars_to_pt(*w, digit),
+            None => chars_to_pt(default_col_chars, digit),
         }
     };
     for (_, row) in &rows {
@@ -761,16 +777,16 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
         let spec = col_specs.iter().find(|(min, max, _, _)| c >= *min && c <= *max);
         let width = match spec {
             Some((_, _, _, true)) => 0.0,
-            Some((_, _, w, _)) => chars_to_pt(*w),
-            None => chars_to_pt(default_col_chars),
+            Some((_, _, w, _)) => chars_to_pt(*w, digit),
+            None => chars_to_pt(default_col_chars, digit),
         };
         col_widths.push(width);
     }
 
     let mut page = PageOptions::default();
     if root.child("pageMargins").is_none() {
-        page.margin_left = 53.3;
-        page.margin_right = 53.3;
+        page.margin_left = 53.8;
+        page.margin_right = 53.8;
         page.margin_top = 70.9;
         page.margin_bottom = 70.9;
         page.margin_header = 56.7;
@@ -839,8 +855,21 @@ fn has_border(b: &Borders) -> bool {
     [b.top, b.left, b.bottom, b.right].iter().any(|s| matches!(s, BorderSide::Line { .. }))
 }
 
-fn chars_to_pt(chars: f64) -> f64 {
-    ((chars * 7.0 + 5.0).round()) * PX_TO_PT
+fn chars_to_pt(chars: f64, digit: f64) -> f64 {
+    chars * digit
+}
+
+fn digit_width(font: &RunProps) -> f64 {
+    let size = font.size.unwrap_or(10.0);
+    let name = font.font.as_deref().unwrap_or("").to_lowercase();
+    let em = if name.contains("calibri") || name.contains("carlito") {
+        0.507
+    } else if name.contains("times") || name.contains("serif") || name.contains("cambria") || name.contains("caladea") {
+        0.5
+    } else {
+        0.556
+    };
+    size * em
 }
 
 fn paper_size(code: u32) -> (f64, f64) {
@@ -860,15 +889,18 @@ fn paper_size(code: u32) -> (f64, f64) {
 
 fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
     let page = &sheet.page;
+    let band = styles.font(0).size.unwrap_or(10.0) * 1.117 + 7.1;
+    let top_margin = if page.header.is_some() { page.margin_top.max(page.margin_header + band) } else { page.margin_top };
+    let bottom_margin = if page.footer.is_some() { page.margin_bottom.max(page.margin_footer + band) } else { page.margin_bottom };
     if sheet.last_row == 0 || sheet.last_col == 0 {
         let mut section = Section {
             page: PageSetup {
                 width: page.width,
                 height: page.height,
                 margin: Margins {
-                    top: page.margin_top,
+                    top: top_margin,
                     right: page.margin_right,
-                    bottom: page.margin_bottom,
+                    bottom: bottom_margin,
                     left: page.margin_left,
                     header: page.margin_header,
                     footer: page.margin_footer,
@@ -885,12 +917,12 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             content_scale: 1.0,
             ..Section::default()
         };
-        section.header_default = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right));
-        section.footer_default = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right));
+        section.header_default = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
+        section.footer_default = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
         return vec![section];
     }
     let printable_w = page.width - page.margin_left - page.margin_right;
-    let printable_h = page.height - page.margin_top - page.margin_bottom;
+    let printable_h = page.height - top_margin - bottom_margin;
 
     let cols: Vec<u32> = (sheet.first_col..=sheet.last_col).collect();
     let rows: Vec<u32> = (sheet.first_row..=sheet.last_row)
@@ -935,8 +967,8 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
         }
     }
 
-    let header = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right));
-    let footer = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right));
+    let header = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
+    let footer = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right, styles.font(0)));
 
     let mut sections = Vec::new();
     for (rg, cg) in order {
@@ -953,7 +985,7 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             .map(|d| {
                 page_anchor(
                     page.margin_left + (d.x - origin_x) * scale,
-                    page.margin_top + (d.y - origin_y) * scale,
+                    top_margin + (d.y - origin_y) * scale,
                     d.width * scale,
                     d.height * scale,
                     d.content.clone(),
@@ -969,9 +1001,9 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
                 width: page.width,
                 height: page.height,
                 margin: Margins {
-                    top: page.margin_top,
+                    top: top_margin,
                     right: page.margin_right,
-                    bottom: page.margin_bottom,
+                    bottom: bottom_margin,
                     left: page.margin_left,
                     header: page.margin_header,
                     footer: page.margin_footer,
@@ -1034,7 +1066,7 @@ fn group(items: &[u32], size: impl Fn(u32) -> f64, limit: f64, breaks: &[u32]) -
 fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale: f64) -> Table {
     let mut table = Table {
         columns: cols.iter().map(|c| sheet.col_widths.get((*c - 1) as usize).copied().unwrap_or(48.0)).collect(),
-        cell_margins: CellMargins { top: Some(0.75), left: Some(1.5), bottom: Some(0.75), right: Some(1.5) },
+        cell_margins: CellMargins { top: Some(1.0), left: Some(1.0), bottom: Some(1.0), right: Some(1.0) },
         ..Table::default()
     };
     if sheet.page.h_center {
@@ -1048,7 +1080,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
         let data = sheet.rows.get(&r);
         let mut row = Row {
             height: Some(data.and_then(|d| d.height).unwrap_or(sheet.default_row_height)),
-            exact_height: data.map(|d| d.custom_height).unwrap_or(false),
+            exact_height: true,
             ..Row::default()
         };
         let mut skip_until: Option<u32> = None;
@@ -1185,16 +1217,15 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
     table
 }
 
-fn header_footer(code: &str, sheet_name: &str, width: f64) -> Vec<Block> {
+fn header_footer(code: &str, sheet_name: &str, width: f64, base: &RunProps) -> Vec<Block> {
     let mut parts: [String; 3] = [String::new(), String::new(), String::new()];
     let mut current = 1usize;
     let mut chars = code.chars().peekable();
     let mut fields: [Vec<Inline>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    let mut props = RunProps {
-        font: Some("Calibri".into()),
-        size: Some(11.0),
-        ..RunProps::default()
-    };
+    let mut props = base.clone();
+    if props.size.is_none() {
+        props.size = Some(10.0);
+    }
     let flush = |parts: &mut [String; 3], fields: &mut [Vec<Inline>; 3], current: usize, props: &RunProps| {
         if !parts[current].is_empty() {
             fields[current].push(Inline::Text { text: std::mem::take(&mut parts[current]), props: props.clone() });

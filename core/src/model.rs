@@ -37,6 +37,7 @@ pub struct Document {
     pub borders_outside_indent: bool,
     pub tabs_relative_to_indent: bool,
     pub footnote_separator_width: Option<f64>,
+    pub cell_metrics: bool,
 }
 
 impl Document {
