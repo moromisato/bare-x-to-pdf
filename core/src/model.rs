@@ -33,6 +33,7 @@ pub struct Document {
     pub generic_families: HashMap<String, Generic>,
     pub even_odd_headers: bool,
     pub additive_spacing: bool,
+    pub fixed_line_metrics: bool,
 }
 
 impl Document {

@@ -402,6 +402,15 @@ impl Emitter<'_> {
     }
 
     fn edges(&self, family: &str, props: &RunProps, size: f64, spacing: LineSpacing) -> (f64, f64) {
+        if self.doc.fixed_line_metrics {
+            let height = match spacing {
+                LineSpacing::Multiple(mult) => 1.2 * mult * size,
+                LineSpacing::Exact(v) => v,
+                LineSpacing::AtLeast(v) => v.max(1.2 * size),
+            };
+            let below = 0.2 * size;
+            return ((height - below).max(0.0), below);
+        }
         let m = self
             .fonts
             .metrics(family, props.bold == Some(true), props.italic == Some(true));

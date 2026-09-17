@@ -45,6 +45,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
 
     let mut doc = Document {
         default_tab: 72.0,
+        fixed_line_metrics: true,
         ..Document::default()
     };
 
