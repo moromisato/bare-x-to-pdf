@@ -13,17 +13,16 @@ are the only per-format work; layout, fonts, tables, images, headers, lists and
 footnotes are shared. The formats that matter are the Office ones, in this
 order:
 
-| Input | Status      | Notes                                                                                                              |
-| ----- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
-| DOCX  | done        | Flow layout through the shared model.                                                                              |
-| PPTX  | in progress | Slides are fixed-layout pages: placeholders resolved through layout and master, shapes, pictures, tables, bullets. |
-| XLSX  | next        | Sheets as paginated grids with cell styles, merged cells and the sheet's page setup.                               |
-| DOC   | after that  | Binary Word 97-2003 reader onto the same flow model; several months of work.                                       |
+| Input                  | Status              | Notes                                                                                                                                 |
+| ---------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| DOCX, DOCM, DOTX, DOTM | done                | Flow layout through the shared model.                                                                                                 |
+| DOC, DOT               | done, first version | Word 97-2003 binary reader: text, styles, lists, sections, headers, footnotes, tables, inline pictures. Word 6/95 files are rejected. |
+| ODT, OTT, FODT         | done, first version | ODF text reader: styles, page masters with headers and footers, lists, tables, frames, notes.                                         |
+| PPTX                   | working extra       | Slides as fixed-layout pages; not a focus.                                                                                            |
 
 [FORMATS.md](FORMATS.md) lists every import filter bare-collabora ships and
 what it would take to render each one here. PDF to DOCX also exists
-(fixed-layout output) and stays, but it is no longer the focus. Plain text and Markdown are deliberately out of scope; they are cheap to
-handle elsewhere.
+(fixed-layout output) and stays, but it is no longer the focus. Spreadsheets, plain text and Markdown are deliberately out of scope.
 
 The goal is faithful output, not pixel identity with Office. Fidelity is
 measured, not guessed: `bench/` converts a corpus with this library and with
@@ -89,8 +88,7 @@ light editing, not for reflowing.
 Not yet handled: tabs in the middle of a line (approximated with the default
 tab width), text wrapping tightly around pictures wider than half the text
 area, tracked changes, comments, charts and SmartArt, embedded fonts in either
-direction, and per-section restart of page numbering beyond the explicit start
-value. `.doc` input is detected but not converted.
+direction, paragraph borders, and floating shapes and hidden text in DOC input.
 
 ## Building
 
@@ -145,15 +143,16 @@ quick look.
 
 ## Size
 
-On darwin-arm64 the stripped addon is about 25 MB, the PDFium library 7 MB
+On darwin-arm64 the stripped addon is about 26 MB, the PDFium library 7 MB
 and the fonts 7 MB, against 337 MB for `bare-collabora`.
 
 ## Layout
 
 - `index.js`, `binding.c`: the Bare addon and its JS API.
-- `core/`: the Rust engine. `docx/` reads DOCX into `model.rs` and writes
-  fixed-layout DOCX; `typst_backend/` emits Typst and renders PDF; `pdf/`
-  extracts text and backgrounds with PDFium.
+- `core/`: the Rust engine. `docx/`, `doc/`, `odt/` and `pptx/` read their
+  formats into `model.rs`; `docx/writer.rs` writes fixed-layout DOCX;
+  `typst_backend/` emits Typst and renders PDF; `pdf/` extracts text and
+  backgrounds with PDFium.
 - `cmake/`: Corrosion for the Rust build and the PDFium download.
 - `bench/`: the comparison harness. `bench/corpus/` holds the documents.
 - `fonts/`: bundled fonts with their licences.
