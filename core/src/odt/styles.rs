@@ -210,6 +210,9 @@ impl Styles {
     pub fn paragraph(&self, name: Option<&str>) -> (ParagraphProps, RunProps) {
         let mut ppr = self.default_paragraph.ppr.clone();
         let mut rpr = self.default_paragraph.rpr.clone();
+        if rpr.kerning.is_none() {
+            rpr.kerning = Some(true);
+        }
         if let Some(name) = name {
             for style in self.chain("paragraph", name) {
                 ppr.merge(&style.ppr);
@@ -596,6 +599,9 @@ fn parse_text_properties(t: &Element, fonts: &HashMap<String, String>) -> (RunPr
     }
     if let Some(spacing) = t.attr("letter-spacing") {
         props.letter_spacing = if spacing == "normal" { Some(0.0) } else { length(spacing) };
+    }
+    if let Some(kerning) = t.attr("letter-kerning") {
+        props.kerning = Some(kerning == "true");
     }
     if let Some(w) = t.attr("font-weight") {
         props.bold = Some(w == "bold" || w.parse::<u32>().map(|n| n >= 600).unwrap_or(false));

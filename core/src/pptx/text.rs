@@ -168,6 +168,9 @@ pub fn parse_rpr(el: &Element, theme: &Theme, colors: &ColorContext) -> RunProps
     if let Some(spacing) = el.attr("spc").and_then(|v| v.parse::<f64>().ok()) {
         props.letter_spacing = Some(spacing / 100.0);
     }
+    if let Some(kern) = el.attr("kern").and_then(|v| v.parse::<f64>().ok()) {
+        props.kerning = Some(kern > 0.0);
+    }
     if let Some(b) = el.attr("b") {
         props.bold = Some(b == "1" || b == "true");
     }
@@ -261,6 +264,7 @@ fn paragraph(p: &Element, ctx: &TextContext, counters: &mut HashMap<usize, i64>)
         font: Some(ctx.theme.minor.clone()),
         size: Some(DEFAULT_SIZE),
         color: ctx.colors.theme.colors.get("dk1").copied().or(Some(Color(0, 0, 0))),
+        kerning: Some(true),
         ..RunProps::default()
     };
     base.merge(&ppr.def_rpr);

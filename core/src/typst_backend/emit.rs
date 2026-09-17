@@ -56,7 +56,7 @@ impl Emitter<'_> {
 
         let _ = writeln!(
             self.out,
-            "#set text(font: {}, size: {}, top-edge: \"ascender\", bottom-edge: \"descender\", hyphenate: false, fallback: true, lang: \"en\")",
+            "#set text(font: {}, size: {}, top-edge: \"ascender\", bottom-edge: \"descender\", hyphenate: false, fallback: true, kerning: false, lang: \"en\")",
             typst_str(&family),
             pt(size)
         );
@@ -631,6 +631,9 @@ impl Emitter<'_> {
         ];
         if let Some(spacing) = props.letter_spacing.filter(|s| s.abs() > 0.001) {
             args.push(format!("tracking: {}", pt(spacing)));
+        }
+        if props.kerning == Some(true) {
+            args.push("kerning: true".into());
         }
         if props.bold == Some(true) {
             args.push("weight: \"bold\"".into());

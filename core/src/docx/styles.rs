@@ -67,7 +67,10 @@ impl Styles {
             },
             ..Styles::default()
         };
-        let Some(root) = root else { return out };
+        let Some(root) = root else {
+            out.doc_rpr.kerning = Some(true);
+            return out;
+        };
 
         if let Some(defaults) = root.child("docDefaults") {
             if let Some(rpr) = defaults.child("rPrDefault").and_then(|d| d.child("rPr")) {
@@ -276,6 +279,7 @@ pub fn parse_rpr(rpr: &Element, theme: &ThemeFonts) -> RunProps {
             }
             "sz" => props.size = el.attr("val").and_then(half_points),
             "spacing" => props.letter_spacing = el.attr("val").and_then(|v| v.parse::<f64>().ok()).map(|v| v / 20.0),
+            "kern" => props.kerning = Some(el.attr("val").and_then(|v| v.parse::<f64>().ok()).is_some_and(|v| v > 0.0)),
             "b" => props.bold = Some(flag(el)),
             "i" => props.italic = Some(flag(el)),
             "u" => props.underline = Some(!matches!(el.attr("val"), Some("none"))),
