@@ -496,6 +496,25 @@ fn parse_paragraph_properties(p: &Element) -> ParagraphProps {
     if let Some(c) = p.attr("contextual-spacing") {
         props.contextual_spacing = Some(c == "true");
     }
+    let side = |value: Option<&str>| -> BorderSide {
+        match value {
+            None => BorderSide::Unset,
+            Some("none") => BorderSide::None,
+            Some(v) => parse_border(v).map(|(w, c)| BorderSide::Line { width: w, color: c }).unwrap_or(BorderSide::None),
+        }
+    };
+    let all = side(p.attr("border"));
+    props.borders = Borders { top: all, left: all, bottom: all, right: all, ..Borders::default() };
+    for (name, slot) in [("border-top", &mut props.borders.top), ("border-left", &mut props.borders.left), ("border-bottom", &mut props.borders.bottom), ("border-right", &mut props.borders.right)] {
+        let s = side(p.attr(name));
+        if s != BorderSide::Unset {
+            *slot = s;
+        }
+    }
+    props.border_space = p.attr("padding").and_then(length).unwrap_or(0.0);
+    if let Some(c) = p.attr("background-color").filter(|c| *c != "transparent").and_then(Color::parse_hex) {
+        props.shading = Some(c);
+    }
     if let Some(tabs) = p.child("tab-stops") {
         for tab in tabs.children("tab-stop") {
             if let Some(pos) = tab.attr("position").and_then(length) {

@@ -1565,6 +1565,38 @@ fn apply_paragraph_sprm(sprm: &Sprm, props: &mut ParagraphProps, numbering: Opti
         }
         0xA413 => props.space_before = Some(sprm.word() as f64 / 20.0),
         0xA414 => props.space_after = Some(sprm.word() as f64 / 20.0),
+        0x6424 | 0x6425 | 0x6426 | 0x6427 => {
+            let side = brc80(sprm.operand, 0);
+            match sprm.opcode {
+                0x6424 => props.borders.top = side,
+                0x6425 => props.borders.left = side,
+                0x6426 => props.borders.bottom = side,
+                _ => props.borders.right = side,
+            }
+            if let Some(&space) = sprm.operand.get(3) {
+                props.border_space = props.border_space.max((space & 0x1F) as f64);
+            }
+        }
+        0xC64E | 0xC64F | 0xC650 | 0xC651 => {
+            let side = brc(sprm.operand, 0);
+            match sprm.opcode {
+                0xC64E => props.borders.top = side,
+                0xC64F => props.borders.left = side,
+                0xC650 => props.borders.bottom = side,
+                _ => props.borders.right = side,
+            }
+            if let Some(&space) = sprm.operand.get(6) {
+                props.border_space = props.border_space.max((space & 0x1F) as f64);
+            }
+        }
+        0x442D => props.shading = shd80_color(sprm.word()),
+        0xC64D => {
+            let op = sprm.operand;
+            if op.len() >= 10 {
+                let back = u32_at(op, 4);
+                props.shading = if back == 0xFF00_0000 { None } else { Some(colorref(back)) };
+            }
+        }
         0x2407 => props.keep_next = Some(sprm.byte() != 0),
         0x2408 => props.page_break_before = Some(sprm.byte() != 0),
         0x246D => props.contextual_spacing = Some(sprm.byte() != 0),

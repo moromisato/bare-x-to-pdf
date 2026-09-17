@@ -327,6 +327,27 @@ impl Emitter<'_> {
         let (wrap_left, wrap_right) = self.wrap_padding(p);
         let pad_left = left - hanging + wrap_left;
         let right = right + wrap_right;
+        let b = &p.props.borders;
+        let has_border = [b.top, b.left, b.bottom, b.right].iter().any(|s| matches!(s, BorderSide::Line { .. }));
+        if has_border || p.props.shading.is_some() {
+            let space = p.props.border_space;
+            let fill = p
+                .props
+                .shading
+                .map(|c| format!("rgb({})", typst_str(&c.hex())))
+                .unwrap_or_else(|| "none".into());
+            expr = format!(
+                "block(width: 100%, fill: {fill}, stroke: (top: {}, bottom: {}, left: {}, right: {}), inset: (top: {}, bottom: {}, left: {}, right: {}), {expr})",
+                stroke(b.top),
+                stroke(b.bottom),
+                stroke(b.left),
+                stroke(b.right),
+                pt(if matches!(b.top, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 }),
+                pt(if matches!(b.bottom, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 }),
+                pt(if matches!(b.left, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 }),
+                pt(if matches!(b.right, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 })
+            );
+        }
         if pad_left.abs() > 0.01 || right.abs() > 0.01 {
             expr = format!("pad(left: {}, right: {}, {})", pt(pad_left), pt(right), expr);
         }
@@ -678,7 +699,10 @@ impl Emitter<'_> {
                 if cell.no_wrap && !body.trim().is_empty() {
                     body = match (cell.halign, cell.overflow_width) {
                         (Some(Align::Right) | Some(Align::Center), _) => format!("#box[{body}]"),
-                        (_, Some(width)) => format!("#block(width: {}, clip: true, breakable: false)[{body}]", pt(width)),
+                        (_, Some(width)) => format!(
+                            "#block(width: {}, clip: true, breakable: false, block(width: 20000pt, breakable: false)[{body}])",
+                            pt(width)
+                        ),
                         _ => format!("#block(width: 20000pt, breakable: false)[{body}]"),
                     };
                 }

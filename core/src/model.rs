@@ -186,6 +186,9 @@ pub struct ParagraphProps {
     pub contextual_spacing: Option<bool>,
     pub numbering: Option<(String, usize)>,
     pub tabs: Vec<TabStop>,
+    pub borders: Borders,
+    pub border_space: f64,
+    pub shading: Option<Color>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -226,6 +229,11 @@ impl ParagraphProps {
             self.numbering = other.numbering.clone();
         }
         self.tabs.extend(other.tabs.iter().copied());
+        self.borders.merge(&other.borders);
+        if other.border_space > 0.0 {
+            self.border_space = other.border_space;
+        }
+        merge(&mut self.shading, other.shading);
     }
 }
 

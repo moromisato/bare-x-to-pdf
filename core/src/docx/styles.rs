@@ -232,6 +232,19 @@ pub fn parse_ppr(ppr: &Element) -> ParagraphProps {
                     }
                 }
             }
+            "pBdr" => {
+                props.borders = super::parse_borders(el);
+                props.border_space = el
+                    .elements()
+                    .filter_map(|b| b.attr("space").and_then(|v| v.parse::<f64>().ok()))
+                    .fold(0.0, f64::max);
+            }
+            "shd" => {
+                props.shading = el
+                    .attr("fill")
+                    .filter(|f| *f != "auto")
+                    .and_then(Color::parse_hex);
+            }
             "pageBreakBefore" => props.page_break_before = Some(flag(el)),
             "keepNext" => props.keep_next = Some(flag(el)),
             "contextualSpacing" => props.contextual_spacing = Some(flag(el)),

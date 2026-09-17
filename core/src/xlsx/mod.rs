@@ -87,8 +87,9 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         parsed_sheets.push((name, parsed));
     }
     let any_content = parsed_sheets.iter().any(|(_, s)| s.last_row > 0 && s.last_col > 0);
-    for (name, parsed) in &parsed_sheets {
-        if any_content && (parsed.last_row == 0 || parsed.last_col == 0) {
+    for (index, (name, parsed)) in parsed_sheets.iter().enumerate() {
+        let empty = parsed.last_row == 0 || parsed.last_col == 0;
+        if empty && (any_content || index > 0) {
             continue;
         }
         doc.sections.extend(paginate(parsed, name, &styles));
@@ -646,10 +647,10 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
 
     let mut page = PageOptions::default();
     if root.child("pageMargins").is_none() {
-        page.margin_left = 56.7;
-        page.margin_right = 56.7;
-        page.margin_top = 78.0;
-        page.margin_bottom = 78.0;
+        page.margin_left = 53.3;
+        page.margin_right = 53.3;
+        page.margin_top = 70.9;
+        page.margin_bottom = 70.9;
         page.margin_header = 56.7;
         page.margin_footer = 56.7;
     }
