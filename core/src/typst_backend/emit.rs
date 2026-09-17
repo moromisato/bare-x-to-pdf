@@ -675,8 +675,12 @@ impl Emitter<'_> {
                 let bottom = margins.bottom.unwrap_or(0.0);
 
                 let mut body = self.blocks(&cell.blocks, true);
-                if cell.no_wrap {
-                    body = format!("#box[{body}]");
+                if cell.no_wrap && !body.trim().is_empty() {
+                    body = match (cell.halign, cell.overflow_width) {
+                        (Some(Align::Right) | Some(Align::Center), _) => format!("#box[{body}]"),
+                        (_, Some(width)) => format!("#block(width: {}, clip: true, breakable: false)[{body}]", pt(width)),
+                        _ => format!("#block(width: 20000pt, breakable: false)[{body}]"),
+                    };
                 }
                 if let (Some(height), false, true) = (row.height, row.exact_height, fixed_columns) {
                     body = format!("#minh({}, [{}])", pt(height), body);

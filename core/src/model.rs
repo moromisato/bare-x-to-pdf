@@ -382,6 +382,7 @@ pub struct Cell {
     pub valign: VAlign,
     pub no_wrap: bool,
     pub halign: Option<Align>,
+    pub overflow_width: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default)]

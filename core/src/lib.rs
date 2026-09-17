@@ -6,6 +6,7 @@ pub mod odt;
 pub mod pdf;
 pub mod pptx;
 pub mod typst_backend;
+pub mod xlsx;
 pub mod xml;
 
 use error::Error;
@@ -38,6 +39,10 @@ pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<
         }
         ("odt" | "ott" | "fodt", "pdf") => {
             let document = odt::read(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
+        ("xlsx" | "xlsm" | "xltx" | "xltm", "pdf") => {
+            let document = xlsx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
         ("pptx", "pdf") => {

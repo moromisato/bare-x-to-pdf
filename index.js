@@ -28,6 +28,10 @@ const CONVERSIONS = {
   ott: ['pdf'],
   fodt: ['pdf'],
   pptx: ['pdf'],
+  xlsx: ['pdf'],
+  xlsm: ['pdf'],
+  xltx: ['pdf'],
+  xltm: ['pdf'],
   pdf: ['docx']
 }
 

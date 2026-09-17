@@ -1091,6 +1091,9 @@ impl Reader<'_> {
                 mark = props;
                 continue;
             }
+            if props.hidden == Some(true) && !matches!(c.ch, '\u{13}' | '\u{14}' | '\u{15}') {
+                continue;
+            }
             match c.ch {
                 '\u{13}' => {
                     flush(&mut buffer, &buffer_props, &mut inlines);

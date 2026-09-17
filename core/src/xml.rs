@@ -89,8 +89,15 @@ pub fn parse(bytes: &[u8]) -> Result<Element, Error> {
                 push_text(&mut stack, &value);
             }
             Event::GeneralRef(r) => {
-                let value = r.xml10_content();
-                push_text(&mut stack, &value);
+                let name = r.into_inner();
+                let resolved: String = if let Some(hex) = name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+                    u32::from_str_radix(hex, 16).ok().and_then(char::from_u32).map(|c| c.to_string()).unwrap_or_default()
+                } else if let Some(dec) = name.strip_prefix('#') {
+                    dec.parse::<u32>().ok().and_then(char::from_u32).map(|c| c.to_string()).unwrap_or_default()
+                } else {
+                    quick_xml::escape::resolve_predefined_entity(&name).map(str::to_string).unwrap_or_default()
+                };
+                push_text(&mut stack, &resolved);
             }
             Event::Eof => break,
             _ => {}

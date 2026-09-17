@@ -172,6 +172,15 @@ fn preset(name: &str) -> Option<Color> {
     })
 }
 
+pub(crate) fn apply_tint(color: Color, tint: f64) -> Color {
+    if tint.abs() < 1e-6 {
+        return color;
+    }
+    let (h, s, l) = to_hsl(color);
+    let l = if tint > 0.0 { l * (1.0 - tint) + tint } else { l * (1.0 + tint) };
+    from_hsl(h, s, l.clamp(0.0, 1.0))
+}
+
 fn to_hsl(c: Color) -> (f64, f64, f64) {
     let r = c.0 as f64 / 255.0;
     let g = c.1 as f64 / 255.0;

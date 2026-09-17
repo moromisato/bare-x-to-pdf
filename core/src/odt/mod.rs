@@ -53,6 +53,9 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         styles: &styles,
         media: &media,
         counters: std::cell::RefCell::new(HashMap::new()),
+        list_keys: std::cell::RefCell::new(HashMap::new()),
+        style_keys: std::cell::RefCell::new(HashMap::new()),
+        next_key: std::cell::Cell::new(0),
     };
 
     let mut doc = Document {
@@ -108,6 +111,9 @@ struct Reader<'a> {
     styles: &'a Styles,
     media: &'a HashMap<String, ImageData>,
     counters: std::cell::RefCell<HashMap<String, Vec<i64>>>,
+    list_keys: std::cell::RefCell<HashMap<String, String>>,
+    style_keys: std::cell::RefCell<HashMap<String, String>>,
+    next_key: std::cell::Cell<usize>,
 }
 
 impl Reader<'_> {
@@ -162,8 +168,8 @@ impl Reader<'_> {
 
     fn block(&self, el: &Element, out: &mut Vec<Block>) {
         match el.name.as_str() {
-            "p" | "h" => out.push(Block::Paragraph(self.paragraph(el, None, 0))),
-            "list" => self.list(el, None, 0, out),
+            "p" | "h" => out.push(Block::Paragraph(self.paragraph(el, None, 0, None))),
+            "list" => self.list(el, None, 0, None, out),
             "table" => out.push(Block::Table(self.table(el))),
             "section" | "index-body" | "table-of-content" | "alphabetical-index" | "illustration-index"
             | "bibliography" | "user-index" | "text-box" => {
@@ -178,12 +184,38 @@ impl Reader<'_> {
         }
     }
 
-    fn list(&self, el: &Element, inherited_style: Option<&str>, level: usize, out: &mut Vec<Block>) {
+    fn list(&self, el: &Element, inherited_style: Option<&str>, level: usize, inherited_key: Option<&str>, out: &mut Vec<Block>) {
         let style_name = el.attr("style-name").or(inherited_style);
-        if level == 0 && el.attr("continue-numbering") != Some("true") && el.attr("continue-list").is_none() {
-            if let Some(name) = style_name {
-                self.counters.borrow_mut().remove(name);
+        let key: String = match inherited_key {
+            Some(k) => k.to_string(),
+            None => {
+                let continued = el
+                    .attr("continue-list")
+                    .and_then(|id| self.list_keys.borrow().get(id).cloned())
+                    .or_else(|| {
+                        if el.attr("continue-numbering") == Some("true") {
+                            style_name.and_then(|s| self.style_keys.borrow().get(s).cloned())
+                        } else {
+                            None
+                        }
+                    });
+                match continued {
+                    Some(k) => k,
+                    None => {
+                        let n = self.next_key.get() + 1;
+                        self.next_key.set(n);
+                        let k = format!("list-{n}");
+                        self.counters.borrow_mut().remove(&k);
+                        k
+                    }
+                }
             }
+        };
+        if let Some(id) = el.attr("xml:id").or(el.attr("id")) {
+            self.list_keys.borrow_mut().insert(id.to_string(), key.clone());
+        }
+        if let Some(style) = style_name {
+            self.style_keys.borrow_mut().insert(style.to_string(), key.clone());
         }
         for item in el.elements() {
             if !matches!(item.name.as_str(), "list-item" | "list-header") {
@@ -195,24 +227,21 @@ impl Reader<'_> {
                 match child.name.as_str() {
                     "p" | "h" => {
                         let label = if first && !is_header { style_name } else { None };
-                        let mut paragraph = self.paragraph(child, label, level);
-                        if first && is_header {
-                            paragraph.list = None;
-                        }
-                        if !first {
+                        let mut paragraph = self.paragraph(child, label, level, Some(&key));
+                        if !first || is_header {
                             paragraph.list = None;
                         }
                         first = false;
                         out.push(Block::Paragraph(paragraph));
                     }
-                    "list" => self.list(child, style_name, level + 1, out),
+                    "list" => self.list(child, style_name, level + 1, Some(&key), out),
                     _ => {}
                 }
             }
         }
     }
 
-    fn paragraph(&self, el: &Element, list_style: Option<&str>, level: usize) -> Paragraph {
+    fn paragraph(&self, el: &Element, list_style: Option<&str>, level: usize, list_key: Option<&str>) -> Paragraph {
         let style_name = el.attr("style-name");
         let (mut props, base) = self.styles.paragraph(style_name);
         let list_style_name = list_style
@@ -247,7 +276,8 @@ impl Reader<'_> {
 
         let list = match (&list_level, list_style_name.as_deref()) {
             (Some(lvl), Some(name)) if list_style.is_some() => {
-                let text = self.label(name, level, lvl);
+                let key = list_key.unwrap_or(name);
+                let text = self.label(key, name, level, lvl);
                 text.map(|text| ListLabel {
                     text,
                     props: {
@@ -272,12 +302,12 @@ impl Reader<'_> {
         }
     }
 
-    fn label(&self, style: &str, level: usize, lvl: &ListLevel) -> Option<String> {
+    fn label(&self, key: &str, style: &str, level: usize, lvl: &ListLevel) -> Option<String> {
         match &lvl.kind {
             styles::LevelKind::Bullet(ch) => Some(ch.clone()),
             styles::LevelKind::Number { format, prefix, suffix, start, display_levels } => {
                 let mut counters = self.counters.borrow_mut();
-                let values = counters.entry(style.to_string()).or_insert_with(|| vec![0; 10]);
+                let values = counters.entry(key.to_string()).or_insert_with(|| vec![0; 10]);
                 if values[level] == 0 {
                     values[level] = *start - 1;
                 }
