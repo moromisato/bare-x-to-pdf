@@ -13,6 +13,20 @@ p b{color:var(--text);font-weight:500}
 .eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500}
 .meta{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--text-2);font-size:13px;margin-top:8px}
 code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;background:var(--surface-2);padding:1px 6px;border-radius:4px}
+.vswrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface);margin-top:22px}
+table.vs{min-width:640px}
+table.vs th{cursor:default;position:static}
+table.vs th.eng{font-size:13px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600}
+table.vs th.eng i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;vertical-align:-1px}
+table.vs th.ours i{background:var(--ours)}table.vs th.ref i{background:var(--ref)}
+table.vs td.metric{min-width:220px}
+table.vs .mname{display:block;font-weight:500}
+table.vs .msub{display:block;font-size:12px;color:var(--muted)}
+table.vs td.val{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
+table.vs td.val.win{color:var(--good);font-weight:500}
+table.vs td.val.win::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--good);margin-right:8px;vertical-align:2px}
+table.vs td.diff{color:var(--text-2);font-size:13px;white-space:nowrap}
+.vsnote{font-size:13px;color:var(--muted);margin-top:8px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:22px}
 .tile{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
 .tile .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500}
@@ -89,15 +103,11 @@ ul.method li{margin:4px 0}
 <p>Office documents converted to PDF by our Rust and Typst engine, compared page by page with the same files converted by bare-collabora (LibreOfficeKit). Same machine, same corpus, same rasteriser.</p>
 <div class="meta"><span>2026-09-17</span><span>commit <code>98fe5ae</code></span><span>Apple M2 Max, 32 GB, macOS, Bare 1.30.3</span><span>bare-collabora 0.1.2</span><span>41 cases, 97 pages</span></div>
 
-<div class="tiles">
-<div class="tile"><div class="lbl">Fidelity</div><div class="val">74.9%</div><div class="sub">mean ink IoU over 41 cases. Started at <b>30%</b> two days ago.</div></div>
-<div class="tile"><div class="lbl">Install size</div><div class="val">47 MB</div><div class="sub">against <b>336 MB</b> for bare-collabora, <b>7.1× smaller</b></div></div>
-<div class="tile"><div class="lbl">Library load</div><div class="val">2 ms</div><div class="sub">require to ready. bare-collabora: <b>89 ms</b> plus about <b>90 ms</b> to start on the first document</div></div>
-<div class="tile"><div class="lbl">Conversion speed</div><div class="val">7.4×</div><div class="sub">faster over the whole corpus: <b>369 ms</b> against <b>2720 ms</b>; median per file <b>4.0×</b></div></div>
-<div class="tile"><div class="lbl">Peak memory</div><div class="val">164 MB</div><div class="sub">converting six files in one process. bare-collabora: <b>358 MB</b></div></div>
-<div class="tile"><div class="lbl">Text extraction</div><div class="val">93.1%</div><div class="sub">of source words recoverable from our PDFs; <b>88.1%</b> from bare-collabora's. Ours is equal or better in <b>23 of 25</b> cases.</div></div>
-<div class="tile"><div class="lbl">Input formats</div><div class="val">11</div><div class="sub">docx, docm, dotx, dotm, doc, dot, odt, ott, fodt, pptx, xlsx to PDF; PDF to DOCX</div></div>
-</div>
+<div class="vswrap"><table class="vs">
+<thead><tr><th class="metric">Measure</th><th class="eng ours"><i></i>simple-converter</th><th class="eng ref"><i></i>bare-collabora</th><th>Difference</th></tr></thead>
+<tbody><tr><td class="metric"><span class="mname">Layout fidelity</span><span class="msub">mean ink overlap with bare-collabora pages, 41 cases</span></td><td class="val">74.9%</td><td class="val">reference</td><td class="diff">measured against it</td></tr><tr><td class="metric"><span class="mname">Text recall</span><span class="msub">source words recoverable from the PDF, 25 cases</span></td><td class="val win">93.1%</td><td class="val">88.1%</td><td class="diff">+5.0 points</td></tr><tr><td class="metric"><span class="mname">Reading order</span><span class="msub">longest common word sequence with the source</span></td><td class="val win">89.7%</td><td class="val">83.0%</td><td class="diff">+6.7 points</td></tr><tr><td class="metric"><span class="mname">Install size</span><span class="msub">darwin-arm64 prebuild on disk</span></td><td class="val win">47 MB</td><td class="val">336 MB</td><td class="diff">7.1× smaller</td></tr><tr><td class="metric"><span class="mname">Library load</span><span class="msub">require until ready</span></td><td class="val win">2 ms</td><td class="val">89 ms</td><td class="diff">44× faster</td></tr><tr><td class="metric"><span class="mname">First conversion</span><span class="msub">sdk-sample.docx, cold process</span></td><td class="val win">13 ms</td><td class="val">105 ms</td><td class="diff">8.1× faster</td></tr><tr><td class="metric"><span class="mname">Warm conversion</span><span class="msub">19-page DOCX, median of five</span></td><td class="val win">40 ms</td><td class="val">277 ms</td><td class="diff">6.9× faster</td></tr><tr><td class="metric"><span class="mname">Whole corpus</span><span class="msub">39 conversions to PDF, engines warm</span></td><td class="val win">369 ms</td><td class="val">2720 ms</td><td class="diff">7.4× faster</td></tr><tr><td class="metric"><span class="mname">Peak memory</span><span class="msub">six files in one process</span></td><td class="val win">164 MB</td><td class="val">358 MB</td><td class="diff">2.2× less</td></tr><tr><td class="metric"><span class="mname">PDF text extraction time</span><span class="msub">bare-pdfium over all output PDFs</span></td><td class="val">121 ms</td><td class="val win">46 ms</td><td class="diff">2.6× slower</td></tr><tr><td class="metric"><span class="mname">Input formats</span><span class="msub">converted to PDF</span></td><td class="val">11</td><td class="val win">221 import filters</td><td class="diff">far broader coverage</td></tr></tbody>
+</table></div>
+<p class="vsnote">Green marks the better value on each row. Layout fidelity is measured against bare-collabora's own output, so that column is the reference by definition. Every number was measured today on this machine; the sections below explain each one.</p>
 
 <h2>How the score works</h2>
 <p>Each page from both engines is rasterised at 72 dpi. <b>Ink IoU</b> counts the dark pixels of the reference and of ours and divides their overlap by their union, so a paragraph shifted by one line scores near zero even though a reader would not mind. It is a harsh, layout-first metric: 85% and above is indistinguishable at reading size, 60 to 85% is the same layout with glyphs a fraction of a point off, below 60% something sits in a different place. <b>Similarity</b> is the mean pixel difference and is above 95% for every case, which is why the report leans on IoU.</p>
