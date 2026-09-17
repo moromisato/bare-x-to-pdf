@@ -219,7 +219,71 @@ pub fn general(value: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+fn format_fraction(value: f64, section: &str) -> Option<String> {
+    let slash = section.find('/')?;
+    let before = &section[..slash];
+    let after = &section[slash + 1..];
+    let numerator_digits = before.chars().rev().take_while(|c| matches!(c, '?' | '#' | '0')).count();
+    if numerator_digits == 0 {
+        return None;
+    }
+    let denominator_spec: String = after.chars().take_while(|c| c.is_ascii_digit() || matches!(c, '?' | '#')).collect();
+    if denominator_spec.is_empty() {
+        return None;
+    }
+    let integer_part = before[..before.len() - numerator_digits].trim_end();
+    let has_integer = integer_part.chars().any(|c| matches!(c, '?' | '#' | '0'));
+    let sign = if value < 0.0 { "-" } else { "" };
+    let magnitude = value.abs();
+    let (whole, fractional) = if has_integer { (magnitude.trunc(), magnitude.fract()) } else { (0.0, magnitude) };
+    let (num, den) = if let Ok(fixed) = denominator_spec.parse::<u64>() {
+        ((fractional * fixed as f64).round() as u64, fixed)
+    } else {
+        let max_den = 10u64.pow(denominator_spec.len() as u32) - 1;
+        best_fraction(fractional, max_den)
+    };
+    let (mut whole, mut num) = (whole as u64, num);
+    if den > 0 && num == den {
+        whole += 1;
+        num = 0;
+    }
+    let mut out = String::from(sign);
+    if has_integer {
+        if whole > 0 || num == 0 {
+            out.push_str(&whole.to_string());
+        }
+        if num > 0 {
+            if whole > 0 {
+                out.push(' ');
+            }
+            out.push_str(&format!("{num}/{den}"));
+        }
+    } else {
+        out.push_str(&format!("{num}/{den}"));
+    }
+    Some(out)
+}
+
+fn best_fraction(value: f64, max_den: u64) -> (u64, u64) {
+    let mut best = (0u64, 1u64);
+    let mut best_err = f64::INFINITY;
+    for den in 1..=max_den {
+        let num = (value * den as f64).round();
+        let err = (value - num / den as f64).abs();
+        if err < best_err - 1e-12 {
+            best = (num as u64, den);
+            best_err = err;
+        }
+    }
+    best
+}
+
 fn format_numeric(value: f64, section: &str) -> String {
+    if section.contains('/') && !section.contains('"') {
+        if let Some(fraction) = format_fraction(value, section) {
+            return fraction;
+        }
+    }
     let mut prefix = String::new();
     let mut suffix = String::new();
     let mut int_digits = 0usize;
@@ -227,6 +291,7 @@ fn format_numeric(value: f64, section: &str) -> String {
     let mut thousands = false;
     let mut percent = false;
     let mut scientific = false;
+    let mut exponent_digits = 0usize;
     let mut seen_number = false;
     let mut in_decimals = false;
     let mut chars = section.chars().peekable();
@@ -256,6 +321,7 @@ fn format_numeric(value: f64, section: &str) -> String {
                 }
                 while let Some('0') = chars.peek() {
                     chars.next();
+                    exponent_digits += 1;
                 }
             }
             '"' => {
@@ -291,7 +357,17 @@ fn format_numeric(value: f64, section: &str) -> String {
         v *= 100.0;
     }
     let body = if scientific {
-        format!("{:.*E}", decimals, v).replace("E", "E+").replace("E+-", "E-")
+        let raw = format!("{:.*E}", decimals, v);
+        match raw.split_once('E') {
+            Some((mantissa, exponent)) => {
+                let (sign, digits) = match exponent.strip_prefix('-') {
+                    Some(rest) => ("-", rest),
+                    None => ("+", exponent),
+                };
+                format!("{mantissa}E{sign}{:0>width$}", digits, width = exponent_digits.max(2))
+            }
+            None => raw,
+        }
     } else {
         let rounded = format!("{:.*}", decimals, v);
         let (int_part, frac_part) = match rounded.split_once('.') {

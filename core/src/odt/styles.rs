@@ -30,6 +30,7 @@ struct Style {
     size_percent: Option<f64>,
     list_style: Option<String>,
     master_page: Option<String>,
+    outline_level: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,6 +101,7 @@ pub struct Styles {
     pub page_layouts: HashMap<String, PageLayout>,
     pub master_pages: HashMap<String, MasterPage>,
     pub default_tab: f64,
+    pub outline_style: Option<String>,
 }
 
 impl Styles {
@@ -157,6 +159,9 @@ impl Styles {
                         }
                         "list-style" | "outline-style" => {
                             let name = el.attr("name").unwrap_or("outline").to_string();
+                            if el.name == "outline-style" {
+                                out.outline_style = Some(name.clone());
+                            }
                             out.lists.insert(name, parse_list(el, &fonts));
                         }
                         "page-layout" => {
@@ -239,6 +244,13 @@ impl Styles {
             .iter()
             .rev()
             .find_map(|s| s.list_style.clone())
+    }
+
+    pub fn outline_level_of(&self, paragraph_style: Option<&str>) -> Option<usize> {
+        self.chain("paragraph", paragraph_style?)
+            .iter()
+            .rev()
+            .find_map(|s| s.outline_level)
     }
 
     pub fn master_page(&self, paragraph_style: &str) -> Option<String> {
@@ -474,6 +486,7 @@ fn parse_style(el: &Element, fonts: &HashMap<String, String>) -> Style {
         parent: el.attr("parent-style-name").map(str::to_owned),
         list_style: el.attr("list-style-name").filter(|l| !l.is_empty()).map(str::to_owned),
         master_page: el.attr("master-page-name").filter(|m| !m.is_empty()).map(str::to_owned),
+        outline_level: el.attr("default-outline-level").and_then(|v| v.parse().ok()).filter(|v| *v > 0),
         ..Style::default()
     };
     if let Some(p) = el.child("paragraph-properties") {

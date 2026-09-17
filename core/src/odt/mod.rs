@@ -279,9 +279,31 @@ impl Reader<'_> {
     fn paragraph(&self, el: &Element, list_style: Option<&str>, level: usize, list_key: Option<&str>) -> Paragraph {
         let style_name = el.attr("style-name");
         let (mut props, base) = self.styles.paragraph(style_name);
-        let list_style_name = list_style
+        let mut list_style_name = list_style
             .map(str::to_owned)
             .or_else(|| style_name.and_then(|s| self.styles.list_style_of(s)));
+        let mut level = level;
+        let mut list_key = list_key;
+        let mut outline = false;
+        if list_style_name.is_none() && el.name == "h" {
+            let outline_level = self
+                .styles
+                .outline_level_of(style_name)
+                .or_else(|| el.attr("outline-level").and_then(|v| v.parse::<usize>().ok()))
+                .filter(|l| *l >= 1);
+            if let (Some(outline_level), Some(name)) = (outline_level, self.styles.outline_style.as_deref()) {
+                let numbered = matches!(
+                    self.styles.list_level(name, outline_level - 1).map(|l| l.kind),
+                    Some(styles::LevelKind::Number { .. }) | Some(styles::LevelKind::Bullet(_))
+                );
+                if numbered {
+                    list_style_name = Some(name.to_string());
+                    level = outline_level - 1;
+                    list_key = Some("outline");
+                    outline = true;
+                }
+            }
+        }
 
         let list_level = list_style_name
             .as_deref()
@@ -310,7 +332,7 @@ impl Reader<'_> {
         }
 
         let list = match (&list_level, list_style_name.as_deref()) {
-            (Some(lvl), Some(name)) if list_style.is_some() => {
+            (Some(lvl), Some(name)) if list_style.is_some() || outline => {
                 let key = list_key.unwrap_or(name);
                 let text = self.label(key, name, level, lvl);
                 text.map(|text| ListLabel {
@@ -344,6 +366,18 @@ impl Reader<'_> {
             styles::LevelKind::Number { format, prefix, suffix, start, display_levels } => {
                 let mut counters = self.counters.borrow_mut();
                 let values = counters.entry(key.to_string()).or_insert_with(|| vec![0; 10]);
+                for higher in 0..level {
+                    if values[higher] == 0 {
+                        values[higher] = self
+                            .styles
+                            .list_level(style, higher)
+                            .and_then(|x| match x.kind {
+                                styles::LevelKind::Number { start, .. } => Some(start),
+                                _ => None,
+                            })
+                            .unwrap_or(1);
+                    }
+                }
                 if values[level] == 0 {
                     values[level] = *start - 1;
                 }

@@ -1116,7 +1116,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
                         .collect();
                     (runs, Align::Left)
                 }
-                Some(CellValue::Bool(b)) => (vec![(if *b { "TRUE".into() } else { "FALSE".into() }, font.clone())], Align::Center),
+                Some(CellValue::Bool(b)) => (vec![(if *b { "TRUE".into() } else { "FALSE".into() }, font.clone())], Align::Right),
                 Some(CellValue::Error(e)) => (vec![(e.clone(), font.clone())], Align::Center),
                 _ => (Vec::new(), Align::Left),
             };
