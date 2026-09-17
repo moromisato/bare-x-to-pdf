@@ -1,6 +1,6 @@
 {
   "name": "bare-x-to-pdf",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Convert Word, PowerPoint, Excel, OpenDocument and PDF files for Bare: a Rust engine on Typst and PDFium",
   "exports": {
     "./package": "./package.json",
