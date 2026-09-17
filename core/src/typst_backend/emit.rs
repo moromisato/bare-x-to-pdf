@@ -1055,7 +1055,8 @@ impl Emitter<'_> {
                     }
                 }
 
-                let mut body = self.blocks(&cell.blocks, true);
+                let visible: Vec<Block> = cell.blocks.iter().filter(|b| !matches!(b, Block::Paragraph(p) if paragraph_hidden(p))).cloned().collect();
+                let mut body = self.blocks(&visible, true);
                 if let (Some(shift), false) = (cell.overflow_shift, body.trim().is_empty()) {
                     let clip = cell.overflow_width.unwrap_or(1.0);
                     body = format!(
@@ -1192,6 +1193,17 @@ fn png_size(data: &[u8]) -> Option<(u32, u32)> {
     let width = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
     let height = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
     (width > 0 && height > 0).then_some((width, height))
+}
+
+fn paragraph_hidden(p: &Paragraph) -> bool {
+    p.mark.hidden == Some(true)
+        && p.anchors.is_empty()
+        && p.list.is_none()
+        && p.inlines.iter().all(|i| match i {
+            Inline::Text { text, props } => text.trim().is_empty() || props.hidden == Some(true),
+            Inline::Tab | Inline::LineBreak => true,
+            _ => false,
+        })
 }
 
 fn split_tokens(text: &str) -> Vec<String> {
