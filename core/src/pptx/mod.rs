@@ -802,6 +802,7 @@ fn shape(
         stroke,
         inset,
         auto_height: false,
+        min_height: None,
         valign,
         shape: kind,
     });

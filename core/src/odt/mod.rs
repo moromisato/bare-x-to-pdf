@@ -146,6 +146,15 @@ impl Reader<'_> {
             content_scale: 1.0,
             ..Section::default()
         };
+        let writer_margin = 2.0 / 2.54 * 72.0;
+        section.page.margin = Margins {
+            top: writer_margin,
+            right: writer_margin,
+            bottom: writer_margin,
+            left: writer_margin,
+            header: writer_margin,
+            footer: writer_margin,
+        };
         if let Some(master) = master {
             if let Some(layout) = self.styles.page_layouts.get(&master.layout) {
                 section.page = layout.page.clone();
@@ -183,7 +192,21 @@ impl Reader<'_> {
             "p" | "h" => out.push(Block::Paragraph(self.paragraph(el, None, 0, None))),
             "list" => self.list(el, None, 0, None, out),
             "table" => out.push(Block::Table(self.table(el))),
-            "section" | "index-body" | "table-of-content" | "alphabetical-index" | "illustration-index"
+            "section" => {
+                let columns = el.attr("style-name").and_then(|name| self.styles.section_columns(name));
+                match columns {
+                    Some(mut columns) if columns.count > 1 => {
+                        columns.blocks = self.blocks(el);
+                        out.push(Block::Columns(columns));
+                    }
+                    _ => {
+                        for child in el.elements() {
+                            self.block(child, out);
+                        }
+                    }
+                }
+            }
+            "index-body" | "table-of-content" | "alphabetical-index" | "illustration-index"
             | "bibliography" | "user-index" | "text-box" => {
                 for child in el.elements() {
                     self.block(child, out);
@@ -433,6 +456,7 @@ impl Reader<'_> {
                 stroke: graphic.stroke,
                 inset: graphic.padding,
                 auto_height: height.is_none() || text_box.attr("min-height").is_some(),
+                min_height: text_box.attr("fo:min-height").or(text_box.attr("min-height")).and_then(length),
                 ..TextBox::default()
             })
         } else {

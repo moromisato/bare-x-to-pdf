@@ -347,6 +347,36 @@ impl Styles {
         names
     }
 
+    pub fn section_columns(&self, name: &str) -> Option<ColumnsBlock> {
+        let el = self.raw.get(&format!("section:{name}"))?;
+        let props = el.child("section-properties")?;
+        let columns = props.child("columns")?;
+        let count: usize = columns.attr("column-count").and_then(|v| v.parse().ok()).unwrap_or(1);
+        let gap = columns.attr("column-gap").and_then(length).unwrap_or(0.0);
+        let separator = columns.child("column-sep").map(|sep| ColumnSeparator {
+            width: sep.attr("width").and_then(length).unwrap_or(0.25).max(0.25),
+            color: sep.attr("color").and_then(Color::parse_hex).unwrap_or(Color(0, 0, 0)),
+            height: sep
+                .attr("height")
+                .and_then(|v| v.trim_end_matches('%').parse::<f64>().ok())
+                .map(|v| v / 100.0)
+                .unwrap_or(1.0),
+            valign: match sep.attr("vertical-align") {
+                Some("bottom") => VAlign::Bottom,
+                Some("middle") => VAlign::Center,
+                _ => VAlign::Top,
+            },
+            dotted: matches!(sep.attr("style"), Some("dotted") | Some("dashed")),
+        });
+        Some(ColumnsBlock {
+            count,
+            gap,
+            blocks: Vec::new(),
+            separator,
+            balanced: props.attr("dont-balance-text-columns") != Some("true"),
+        })
+    }
+
     fn raw_graphic(&self, name: &str) -> Option<&Element> {
         self.raw.get(&format!("graphic:{name}"))
             .or_else(|| self.raw.get(&format!("table:{name}")))

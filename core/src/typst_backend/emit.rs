@@ -1,6 +1,6 @@
 use super::fonts::FontSet;
 use crate::model::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -20,6 +20,7 @@ pub fn emit(doc: &Document, fonts: &FontSet) -> Emitted {
         out: String::new(),
         files: RefCell::new(Vec::new()),
         page: RefCell::new(PageSetup::default()),
+        para_line: Cell::new(None),
     };
     emitter.preamble();
     for (index, section) in doc.sections.iter().enumerate() {
@@ -37,6 +38,7 @@ struct Emitter<'a> {
     out: String,
     files: RefCell<Vec<(String, Vec<u8>)>>,
     page: RefCell<PageSetup>,
+    para_line: Cell<Option<f64>>,
 }
 
 struct CellOut {
@@ -65,7 +67,12 @@ impl Emitter<'_> {
         let _ = writeln!(self.out, "#set block(above: 0pt, below: 0pt)");
         let _ = writeln!(
             self.out,
-            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let lbl(label, x0, left, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = if end <= left + 0.01 {{ left }} else {{ let c = stops.filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= left {{ left + (calc.floor((end - left) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, label) }}"
+            "#set footnote.entry(separator: line(length: {}, stroke: 0.5pt), clearance: 2.83pt, gap: 5.1pt, indent: 0pt)",
+            self.doc.footnote_separator_width.map(pt).unwrap_or_else(|| "25%".to_string())
+        );
+        let _ = writeln!(
+            self.out,
+            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let lbl(label, x0, left, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = if end <= left + 0.01 {{ left }} else {{ let c = stops.filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= left {{ left + (calc.floor((end - left) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, label) }}"
         );
     }
 
@@ -215,12 +222,68 @@ impl Emitter<'_> {
                     prev_paragraph = false;
                     prev_contextual = false;
                 }
+                Block::Columns(c) => {
+                    if prev_after > 0.01 {
+                        let _ = writeln!(out, "#v({})", pt(prev_after));
+                    }
+                    self.columns_block(c, &mut out);
+                    prev_after = 0.0;
+                    prev_style = None;
+                    prev_paragraph = false;
+                    prev_contextual = false;
+                }
             }
         }
         if trailing && prev_after > 0.01 {
             let _ = writeln!(out, "#v({})", pt(prev_after));
         }
         out
+    }
+
+    fn columns_block(&self, c: &ColumnsBlock, out: &mut String) {
+        let body = self.blocks(&c.blocks, false);
+        let n = c.count.max(1);
+        let gap = pt(c.gap);
+        if !c.balanced {
+            let _ = writeln!(out, "#columns({n}, gutter: {gap})[{body}]");
+            return;
+        }
+        let size = c
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Paragraph(p) => p.inlines.iter().find_map(|i| match i {
+                    Inline::Text { props, .. } => Some(props.size.unwrap_or(DEFAULT_SIZE)),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .unwrap_or(DEFAULT_SIZE);
+        let mut separators = String::new();
+        if let Some(sep) = c.separator {
+            let offset = match sep.valign {
+                VAlign::Top => "0".to_string(),
+                VAlign::Center => format!("h * {} / 2", trim_num(1.0 - sep.height)),
+                VAlign::Bottom => format!("h * {}", trim_num(1.0 - sep.height)),
+            };
+            let dash = if sep.dotted { ", dash: \"dotted\"" } else { "" };
+            for i in 1..n {
+                let _ = write!(
+                    separators,
+                    "place(top + left, dx: colw * {i} + {gap} * {} + {gap} / 2 - {w} / 2, dy: {offset}, line(angle: 90deg, length: h * {}, stroke: (paint: rgb({}), thickness: {w}{dash}))); ",
+                    i - 1,
+                    trim_num(sep.height),
+                    typst_str(&sep.color.hex()),
+                    w = pt(sep.width)
+                );
+            }
+        }
+        let _ = writeln!(
+            out,
+            "#layout(size => {{ let body = [{body}]; let colw = (size.width - {gap} * {}) / {n}; let h = measure(width: colw, body).height / {n} + {}; block(width: 100%, height: h, {{ {separators}columns({n}, gutter: {gap}, body) }}) }})",
+            n - 1,
+            pt(size * 0.6)
+        );
     }
 
     fn paragraph(&self, p: &Paragraph, gap: f64, first_in_group: bool, last_in_group: bool, out: &mut String) {
@@ -254,6 +317,7 @@ impl Emitter<'_> {
         }
 
         let spacing = p.props.line_spacing.unwrap_or(LineSpacing::Multiple(1.0));
+        let outer_line = self.para_line.replace(self.paragraph_line_height(p, inlines));
         let lead_props = inlines
             .iter()
             .find_map(|i| match i {
@@ -417,6 +481,33 @@ impl Emitter<'_> {
         }
 
         let _ = writeln!(out, "#{expr}");
+        self.para_line.set(outer_line);
+    }
+
+    fn paragraph_line_height(&self, p: &Paragraph, inlines: &[&Inline]) -> Option<f64> {
+        if self.doc.fixed_line_metrics {
+            return None;
+        }
+        let runs = inlines
+            .iter()
+            .filter_map(|i| match i {
+                Inline::Text { props, text } if !text.is_empty() => Some(props),
+                _ => None,
+            })
+            .chain(p.list.as_ref().map(|l| &l.props));
+        let mut above = 0.0f64;
+        let mut below = 0.0f64;
+        let mut any = false;
+        for props in runs {
+            any = true;
+            let size = props.size.unwrap_or(DEFAULT_SIZE);
+            let m = self
+                .fonts
+                .metrics(&self.family(props), props.bold == Some(true), props.italic == Some(true));
+            above = above.max(m.ascender * size);
+            below = below.max((m.descender + m.line_gap) * size);
+        }
+        any.then_some(above + below)
     }
 
     fn edges(&self, family: &str, props: &RunProps, size: f64, spacing: LineSpacing, empty_line: bool) -> (f64, f64) {
@@ -436,7 +527,10 @@ impl Emitter<'_> {
         let natural_below = m.descender + m.line_gap;
         let _ = empty_line;
         let (above, below) = match spacing {
-            LineSpacing::Multiple(mult) if mult >= 1.0 => (m.ascender, natural_below + (mult - 1.0) * line),
+            LineSpacing::Multiple(mult) if mult >= 1.0 => {
+                let line = self.para_line.get().map_or(line, |v| v / size);
+                (m.ascender, natural_below + (mult - 1.0) * line)
+            }
             LineSpacing::Multiple(mult) => (m.ascender + (mult - 1.0) * line, natural_below),
             LineSpacing::Exact(v) => (v / size - natural_below, natural_below),
             LineSpacing::AtLeast(v) => (m.ascender + ((v / size) - line).max(0.0), natural_below),
@@ -600,7 +694,14 @@ impl Emitter<'_> {
                         VAlign::Center => "horizon",
                         VAlign::Bottom => "bottom",
                     };
-                    let body = format!("align({valign} + left)[{}]", self.blocks(&tb.blocks, false));
+                    let mut body = format!("align({valign} + left)[{}]", self.blocks(&tb.blocks, false));
+                    if let Some(min) = tb.min_height.filter(|_| tb.auto_height) {
+                        body = format!(
+                            "minhw({}, {}, {body})",
+                            pt((drawing.width - tb.inset.1 - tb.inset.3).max(0.0)),
+                            pt((min - tb.inset.0 - tb.inset.2).max(0.0))
+                        );
+                    }
                     let inset = format!(
                         "inset: (top: {}, left: {}, bottom: {}, right: {})",
                         pt(tb.inset.0),
@@ -703,7 +804,7 @@ impl Emitter<'_> {
                 };
                 let _ = writeln!(
                     out,
-                    "#block(width: 100%, height: 0pt, place(top + {h_align}, dx: {}, dy: {}, {expr}))",
+                    "#context {{ let inner = {expr}; let m = measure(inner); block(width: 100%, height: 0pt, place(top + {h_align}, dx: {}, dy: {}, box(width: m.width, height: m.height, inner))) }}",
                     pt(dx),
                     pt(y)
                 );

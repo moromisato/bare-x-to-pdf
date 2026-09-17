@@ -36,6 +36,7 @@ pub struct Document {
     pub fixed_line_metrics: bool,
     pub borders_outside_indent: bool,
     pub tabs_relative_to_indent: bool,
+    pub footnote_separator_width: Option<f64>,
 }
 
 impl Document {
@@ -131,6 +132,25 @@ impl Default for PageSetup {
 pub enum Block {
     Paragraph(Paragraph),
     Table(Table),
+    Columns(ColumnsBlock),
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnsBlock {
+    pub count: usize,
+    pub gap: f64,
+    pub blocks: Vec<Block>,
+    pub separator: Option<ColumnSeparator>,
+    pub balanced: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ColumnSeparator {
+    pub width: f64,
+    pub color: Color,
+    pub height: f64,
+    pub valign: VAlign,
+    pub dotted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -521,6 +541,7 @@ pub struct TextBox {
     pub stroke: Option<(f64, Color)>,
     pub inset: (f64, f64, f64, f64),
     pub auto_height: bool,
+    pub min_height: Option<f64>,
     pub valign: VAlign,
     pub shape: ShapeKind,
 }
@@ -528,6 +549,7 @@ pub struct TextBox {
 impl Default for TextBox {
     fn default() -> Self {
         TextBox {
+            min_height: None,
             blocks: Vec::new(),
             fill: None,
             stroke: None,

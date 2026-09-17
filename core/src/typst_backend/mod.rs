@@ -13,10 +13,13 @@ use world::ConverterWorld;
 
 pub fn render_pdf(doc: &Document, fonts_dir: &Path) -> Result<Vec<u8>, Error> {
     let fonts = FontSet::load(fonts_dir)?;
-    let emitted = emit::emit(doc, &fonts);
+    let mut emitted = emit::emit(doc, &fonts);
 
     if let Ok(path) = std::env::var("SIMPLE_CONVERTER_DUMP_TYPST") {
         let _ = std::fs::write(path, &emitted.source);
+    }
+    if let Ok(path) = std::env::var("SIMPLE_CONVERTER_LOAD_TYPST") {
+        emitted.source = std::fs::read_to_string(path).map_err(|e| Error::new(format!("cannot read typst source: {e}")))?;
     }
 
     let mut world = ConverterWorld::new(emitted.source, fonts);
