@@ -14,7 +14,7 @@ const PDFIUM_LIBRARY = {
 function defaultPdfiumPath() {
   const addon = require.addon.resolve('.')
   const name = PDFIUM_LIBRARY[Bare.platform] || 'libpdfium.so'
-  return path.join(path.dirname(addon), 'simple-converter', name)
+  return path.join(path.dirname(addon), path.basename(addon, '.bare'), name)
 }
 
 const CONVERSIONS = {
