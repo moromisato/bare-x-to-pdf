@@ -3,6 +3,8 @@ mod format;
 use crate::error::Error;
 use crate::model::*;
 use crate::pptx::color::{apply_tint, Theme};
+use crate::pptx::text::emu;
+use crate::pptx::{page_anchor, resolve_path, simple_shape};
 use crate::xml::{self, Element};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read};
@@ -83,7 +85,17 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         let Some(data) = entry(&mut archive, path)? else { continue };
         let root = xml::parse(&data)?;
         let name = sheet.attr("name").unwrap_or("Sheet").to_string();
-        let parsed = parse_sheet(&root, &styles, &shared, print_areas.get(&index).map(String::as_str));
+        let mut parsed = parse_sheet(&root, &styles, &shared, print_areas.get(&index).map(String::as_str));
+        parsed.drawings = read_drawings(&mut archive, path, &parsed, &theme)?;
+        for drawing in &parsed.drawings {
+            let (col, row) = cell_at(&parsed, drawing.x + drawing.width, drawing.y + drawing.height);
+            if parsed.first_row == 0 {
+                parsed.first_row = 1;
+                parsed.first_col = 1;
+            }
+            parsed.last_row = parsed.last_row.max(row);
+            parsed.last_col = parsed.last_col.max(col);
+        }
         parsed_sheets.push((name, parsed));
     }
     let any_content = parsed_sheets.iter().any(|(_, s)| s.last_row > 0 && s.last_col > 0);
@@ -110,6 +122,107 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         });
     }
     Ok(doc)
+}
+
+fn sheet_col_width(sheet: &Sheet, col: u32) -> f64 {
+    sheet.col_widths.get(col as usize).copied().unwrap_or(48.0)
+}
+
+fn sheet_row_height(sheet: &Sheet, row: u32) -> f64 {
+    sheet
+        .rows
+        .get(&(row + 1))
+        .and_then(|d| d.height)
+        .unwrap_or(sheet.default_row_height)
+}
+
+fn sheet_x(sheet: &Sheet, col: u32) -> f64 {
+    (0..col).map(|c| sheet_col_width(sheet, c)).sum()
+}
+
+fn sheet_y(sheet: &Sheet, row: u32) -> f64 {
+    (0..row).map(|r| sheet_row_height(sheet, r)).sum()
+}
+
+fn cell_at(sheet: &Sheet, x: f64, y: f64) -> (u32, u32) {
+    let mut col = 0;
+    let mut cx = 0.0;
+    while cx + sheet_col_width(sheet, col) < x - 0.01 && col < 16_384 {
+        cx += sheet_col_width(sheet, col);
+        col += 1;
+    }
+    let mut row = 0;
+    let mut cy = 0.0;
+    while cy + sheet_row_height(sheet, row) < y - 0.01 && row < 1_048_576 {
+        cy += sheet_row_height(sheet, row);
+        row += 1;
+    }
+    (col + 1, row + 1)
+}
+
+fn read_drawings<R: Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    sheet_path: &str,
+    sheet: &Sheet,
+    theme: &Theme,
+) -> Result<Vec<SheetDrawing>, Error> {
+    let (dir, file) = sheet_path.rsplit_once('/').unwrap_or(("", sheet_path));
+    let Some(rels) = entry(archive, &format!("{dir}/_rels/{file}.rels"))? else { return Ok(Vec::new()) };
+    let rels = xml::parse(&rels)?;
+    let mut drawings = Vec::new();
+    for rel in rels.children("Relationship") {
+        if !rel.attr("Type").is_some_and(|t| t.ends_with("/drawing")) {
+            continue;
+        }
+        let Some(target) = rel.attr("Target") else { continue };
+        let path = resolve_path(dir, target);
+        let Some(data) = entry(archive, &path)? else { continue };
+        let root = xml::parse(&data)?;
+        let (ddir, dfile) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
+        let mut media = HashMap::new();
+        if let Some(drels) = entry(archive, &format!("{ddir}/_rels/{dfile}.rels"))? {
+            for r in xml::parse(&drels)?.children("Relationship") {
+                if !r.attr("Type").is_some_and(|t| t.ends_with("/image")) {
+                    continue;
+                }
+                if let (Some(id), Some(t)) = (r.attr("Id"), r.attr("Target")) {
+                    if let Some(bytes) = entry(archive, &resolve_path(ddir, t))? {
+                        if let Some(format) = ImageFormat::sniff(&bytes) {
+                            media.insert(id.to_string(), ImageData { data: bytes, format });
+                        }
+                    }
+                }
+            }
+        }
+        for anchor in root.elements() {
+            let num = |el: &Element, name: &str| el.child(name).and_then(|c| c.text().trim().parse::<u32>().ok()).unwrap_or(0);
+            let off = |el: &Element, name: &str| el.child(name).and_then(|c| emu(c.text().trim())).unwrap_or(0.0);
+            let (x, y) = match (anchor.child("from"), anchor.child("pos")) {
+                (Some(from), _) => (
+                    sheet_x(sheet, num(from, "col")) + off(from, "colOff"),
+                    sheet_y(sheet, num(from, "row")) + off(from, "rowOff"),
+                ),
+                (None, Some(pos)) => (pos.attr("x").and_then(emu).unwrap_or(0.0), pos.attr("y").and_then(emu).unwrap_or(0.0)),
+                _ => continue,
+            };
+            let (width, height) = match (anchor.child("to"), anchor.child("ext")) {
+                (Some(to), _) => (
+                    sheet_x(sheet, num(to, "col")) + off(to, "colOff") - x,
+                    sheet_y(sheet, num(to, "row")) + off(to, "rowOff") - y,
+                ),
+                (None, Some(ext)) => (ext.attr("cx").and_then(emu).unwrap_or(0.0), ext.attr("cy").and_then(emu).unwrap_or(0.0)),
+                _ => continue,
+            };
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+            let Some(shape) = anchor.elements().find(|e| matches!(e.name.as_str(), "sp" | "pic" | "cxnSp")) else { continue };
+            if let Some(content) = simple_shape(shape, width, height, theme, &media) {
+                drawings.push(SheetDrawing { x, y, width, height, content });
+            }
+        }
+    }
+    Ok(drawings)
 }
 
 fn entry<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, name: &str) -> Result<Option<Vec<u8>>, Error> {
@@ -416,7 +529,16 @@ impl Default for PageOptions {
     }
 }
 
+struct SheetDrawing {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    content: DrawingContent,
+}
+
 struct Sheet {
+    drawings: Vec<SheetDrawing>,
     col_widths: Vec<f64>,
     rows: BTreeMap<u32, RowData>,
     merges: Vec<(u32, u32, u32, u32)>,
@@ -698,6 +820,7 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
     };
 
     Sheet {
+        drawings: Vec::new(),
         col_widths,
         rows,
         merges,
@@ -818,6 +941,29 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
     let mut sections = Vec::new();
     for (rg, cg) in order {
         let table = build_table(sheet, rg, cg, styles, scale);
+        let origin_x = sheet_x(sheet, cg[0] - 1);
+        let origin_y = sheet_y(sheet, rg[0] - 1);
+        let anchors: Vec<Anchor> = sheet
+            .drawings
+            .iter()
+            .filter(|d| {
+                let (col, row) = cell_at(sheet, d.x + 0.01, d.y + 0.01);
+                cg.contains(&col) && rg.contains(&row)
+            })
+            .map(|d| {
+                page_anchor(
+                    page.margin_left + (d.x - origin_x) * scale,
+                    page.margin_top + (d.y - origin_y) * scale,
+                    d.width * scale,
+                    d.height * scale,
+                    d.content.clone(),
+                    0.0,
+                    false,
+                    false,
+                    false,
+                )
+            })
+            .collect();
         let mut section = Section {
             page: PageSetup {
                 width: page.width,
@@ -834,6 +980,7 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             blocks: vec![Block::Table(table)],
             columns: 1,
             content_scale: scale,
+            anchors,
             ..Section::default()
         };
         section.header_default = header.clone();
@@ -1014,12 +1161,12 @@ fn header_footer(code: &str, sheet_name: &str, width: f64) -> Vec<Block> {
     let mut current = 1usize;
     let mut chars = code.chars().peekable();
     let mut fields: [Vec<Inline>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    let props = RunProps {
+    let mut props = RunProps {
         font: Some("Calibri".into()),
         size: Some(11.0),
         ..RunProps::default()
     };
-    let flush = |parts: &mut [String; 3], fields: &mut [Vec<Inline>; 3], current: usize| {
+    let flush = |parts: &mut [String; 3], fields: &mut [Vec<Inline>; 3], current: usize, props: &RunProps| {
         if !parts[current].is_empty() {
             fields[current].push(Inline::Text { text: std::mem::take(&mut parts[current]), props: props.clone() });
         }
@@ -1030,30 +1177,48 @@ fn header_footer(code: &str, sheet_name: &str, width: f64) -> Vec<Block> {
             continue;
         }
         match chars.next() {
-            Some('L') => { flush(&mut parts, &mut fields, current); current = 0; }
-            Some('C') => { flush(&mut parts, &mut fields, current); current = 1; }
-            Some('R') => { flush(&mut parts, &mut fields, current); current = 2; }
-            Some('P') => { flush(&mut parts, &mut fields, current); fields[current].push(Inline::Field { kind: FieldKind::Page, props: props.clone() }); }
-            Some('N') => { flush(&mut parts, &mut fields, current); fields[current].push(Inline::Field { kind: FieldKind::NumPages, props: props.clone() }); }
+            Some('L') => { flush(&mut parts, &mut fields, current, &props); current = 0; }
+            Some('C') => { flush(&mut parts, &mut fields, current, &props); current = 1; }
+            Some('R') => { flush(&mut parts, &mut fields, current, &props); current = 2; }
+            Some('P') => { flush(&mut parts, &mut fields, current, &props); fields[current].push(Inline::Field { kind: FieldKind::Page, props: props.clone() }); }
+            Some('N') => { flush(&mut parts, &mut fields, current, &props); fields[current].push(Inline::Field { kind: FieldKind::NumPages, props: props.clone() }); }
             Some('A') => parts[current].push_str(sheet_name),
             Some('&') => parts[current].push('&'),
+            Some('B') => { flush(&mut parts, &mut fields, current, &props); props.bold = Some(props.bold != Some(true)); }
+            Some('I') => { flush(&mut parts, &mut fields, current, &props); props.italic = Some(props.italic != Some(true)); }
+            Some('U') => { flush(&mut parts, &mut fields, current, &props); props.underline = Some(props.underline != Some(true)); }
             Some('"') => {
+                let mut spec = String::new();
                 for q in chars.by_ref() {
                     if q == '"' {
                         break;
                     }
+                    spec.push(q);
                 }
+                flush(&mut parts, &mut fields, current, &props);
+                let (font, style) = spec.split_once(',').unwrap_or((spec.as_str(), ""));
+                if !font.is_empty() && font != "-" {
+                    props.font = Some(font.to_string());
+                }
+                let style = style.to_ascii_lowercase();
+                props.bold = Some(style.contains("bold"));
+                props.italic = Some(style.contains("italic"));
             }
             Some(d) if d.is_ascii_digit() => {
+                let mut digits = String::from(d);
                 while let Some(n) = chars.peek() {
-                    if n.is_ascii_digit() { chars.next(); } else { break; }
+                    if n.is_ascii_digit() { digits.push(*n); chars.next(); } else { break; }
+                }
+                flush(&mut parts, &mut fields, current, &props);
+                if let Ok(size) = digits.parse::<f64>() {
+                    props.size = Some(size);
                 }
             }
             Some(_) => {}
             None => break,
         }
     }
-    flush(&mut parts, &mut fields, current);
+    flush(&mut parts, &mut fields, current, &props);
 
     let mut table = Table {
         columns: vec![width / 3.0; 3],

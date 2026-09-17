@@ -72,7 +72,7 @@ impl Emitter<'_> {
         );
         let _ = writeln!(
             self.out,
-            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let lbl(label, x0, left, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = if end <= left + 0.01 {{ left }} else {{ let c = stops.filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= left {{ left + (calc.floor((end - left) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, label) }}"
+            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let lbl(label, x0, lft, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = if end <= lft + 0.01 {{ lft }} else {{ let c = stops.filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= lft {{ lft + (calc.floor((end - lft) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, align(left, label)) }}"
         );
     }
 
@@ -104,6 +104,11 @@ impl Emitter<'_> {
             let _ = writeln!(self.out, "#counter(page).update({start})");
         }
         let _ = writeln!(self.out, "#metadata(none) <section-{index}>");
+        for anchor in &section.anchors {
+            let mut placed = String::new();
+            self.anchor(anchor, &mut placed);
+            self.out.push_str(&placed);
+        }
 
         let blocks = self.blocks(&section.blocks, false);
         if section.content_scale > 0.0 && (section.content_scale - 1.0).abs() > 0.001 {

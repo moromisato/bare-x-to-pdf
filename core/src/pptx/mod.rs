@@ -1,5 +1,5 @@
 pub(crate) mod color;
-mod text;
+pub(crate) mod text;
 
 pub(crate) fn map_bullet_pub(text: &str) -> String {
     text::map_bullet(text)
@@ -133,7 +133,7 @@ impl<'a> Package<'a> {
     }
 }
 
-fn resolve_path(dir: &str, target: &str) -> String {
+pub(crate) fn resolve_path(dir: &str, target: &str) -> String {
     if let Some(abs) = target.strip_prefix('/') {
         return abs.to_string();
     }
@@ -516,7 +516,7 @@ fn background(bg: &Element, ctx: &SlideCtx) -> Option<Anchor> {
     Some(page_anchor(0.0, 0.0, ctx.page_width, ctx.page_height, content, 0.0, false, false, true))
 }
 
-fn page_anchor(x: f64, y: f64, w: f64, h: f64, content: DrawingContent, rot: f64, flip_h: bool, flip_v: bool, behind: bool) -> Anchor {
+pub(crate) fn page_anchor(x: f64, y: f64, w: f64, h: f64, content: DrawingContent, rot: f64, flip_h: bool, flip_v: bool, behind: bool) -> Anchor {
     Anchor {
         drawing: Drawing {
             width: w,
@@ -541,6 +541,67 @@ enum Fill {
     None,
     Solid(Color),
     Image(ImageData),
+}
+
+pub(crate) fn simple_shape(el: &Element, w: f64, h: f64, theme: &Theme, media: &HashMap<String, ImageData>) -> Option<DrawingContent> {
+    let clr_map = color::default_clr_map();
+    let colors = ColorContext { theme, clr_map: &clr_map, placeholder: None };
+    if el.name == "pic" {
+        let image = el
+            .child("blipFill")?
+            .child("blip")?
+            .attr("embed")
+            .and_then(|id| media.get(id))
+            .cloned()?;
+        return Some(DrawingContent::Image(image));
+    }
+    let sp_pr = el.child("spPr");
+    let style = el.child("style");
+    let shape_fill = match sp_pr.map(|p| fill(p, &colors, media)) {
+        Some(Fill::Solid(c)) => Some(c),
+        Some(Fill::Image(image)) => return Some(DrawingContent::Image(image)),
+        _ => None,
+    };
+    let stroke = line(sp_pr, style, &colors);
+    let custom = sp_pr.and_then(|p| p.child("custGeom")).and_then(custom_path);
+    let geometry = sp_pr
+        .and_then(|p| p.child("prstGeom"))
+        .and_then(|g| g.attr("prst"))
+        .unwrap_or("rect");
+    let kind = match geometry {
+        _ if custom.is_some() => ShapeKind::Path(custom.unwrap()),
+        "ellipse" => ShapeKind::Ellipse,
+        "roundRect" => ShapeKind::RoundRect(w.min(h) * 0.16667),
+        "line" | "straightConnector1" | "bentConnector3" => ShapeKind::Line,
+        other => preset_polygon(other).map(ShapeKind::Polygon).unwrap_or(ShapeKind::Rect),
+    };
+    let body = el.child("txBody");
+    let body_chain: Vec<&Element> = body.and_then(|b| b.child("bodyPr")).into_iter().collect();
+    let (inset, valign, scale, reduction) = body_settings(&body_chain);
+    let default = LevelStyles::default();
+    let text_ctx = TextContext {
+        theme,
+        colors: &colors,
+        chain: vec![&default],
+        font_scale: scale,
+        spacing_reduction: reduction,
+        slide_number: 0,
+    };
+    let blocks = body.map(|b| text_blocks(b, &text_ctx)).unwrap_or_default();
+    let has_text = blocks.iter().any(|b| matches!(b, Block::Paragraph(p) if !p.inlines.is_empty()));
+    if !has_text && shape_fill.is_none() && stroke.is_none() {
+        return None;
+    }
+    Some(DrawingContent::TextBox(TextBox {
+        blocks,
+        fill: shape_fill,
+        stroke,
+        inset,
+        auto_height: false,
+        min_height: None,
+        valign,
+        shape: kind,
+    }))
 }
 
 fn fill(props: &Element, colors: &ColorContext, media: &HashMap<String, ImageData>) -> Fill {

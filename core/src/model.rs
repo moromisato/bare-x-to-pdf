@@ -64,6 +64,7 @@ pub struct Section {
     pub page_start: Option<i64>,
     pub page_format: PageNumberFormat,
     pub content_scale: f64,
+    pub anchors: Vec<Anchor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
