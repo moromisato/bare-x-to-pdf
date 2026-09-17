@@ -347,7 +347,7 @@ impl Emitter<'_> {
         }
         let _ = x;
         if !any_text {
-            body.insert_str(0, &self.text_expr("\u{a0}", &p.mark, spacing));
+            body.insert_str(0, &self.text_expr_line("\u{a0}", &p.mark, spacing, true));
         }
 
         let mut expr = format!(
@@ -401,7 +401,7 @@ impl Emitter<'_> {
         let _ = writeln!(out, "#{expr}");
     }
 
-    fn edges(&self, family: &str, props: &RunProps, size: f64, spacing: LineSpacing) -> (f64, f64) {
+    fn edges(&self, family: &str, props: &RunProps, size: f64, spacing: LineSpacing, empty_line: bool) -> (f64, f64) {
         if self.doc.fixed_line_metrics {
             let height = match spacing {
                 LineSpacing::Multiple(mult) => 1.2 * mult * size,
@@ -415,28 +415,38 @@ impl Emitter<'_> {
             .fonts
             .metrics(family, props.bold == Some(true), props.italic == Some(true));
         let line = m.line_height();
-        let below = m.descender + m.line_gap;
-        let above = match spacing {
-            LineSpacing::Multiple(mult) => m.ascender + (mult - 1.0) * line,
-            LineSpacing::Exact(v) => v / size - below,
-            LineSpacing::AtLeast(v) => m.ascender + ((v / size) - line).max(0.0),
+        let natural_below = m.descender + m.line_gap;
+        let _ = empty_line;
+        let (above, below) = match spacing {
+            LineSpacing::Multiple(mult) if mult >= 1.0 => (m.ascender, natural_below + (mult - 1.0) * line),
+            LineSpacing::Multiple(mult) => (m.ascender + (mult - 1.0) * line, natural_below),
+            LineSpacing::Exact(v) => (v / size - natural_below, natural_below),
+            LineSpacing::AtLeast(v) => (m.ascender + ((v / size) - line).max(0.0), natural_below),
         };
-        (above.max(0.0) * size, below * size)
+        (above.max(0.0) * size, below.max(0.0) * size)
     }
 
     fn text_expr(&self, text: &str, props: &RunProps, spacing: LineSpacing) -> String {
+        self.text_expr_line(text, props, spacing, false)
+    }
+
+    fn text_expr_line(&self, text: &str, props: &RunProps, spacing: LineSpacing, empty_line: bool) -> String {
         let content = if props.caps == Some(true) {
             text.to_uppercase()
         } else {
             text.to_owned()
         };
-        self.text_expr_content(&typst_str(&content), props, spacing)
+        self.text_expr_content_line(&typst_str(&content), props, spacing, empty_line)
     }
 
     fn text_expr_content(&self, content: &str, props: &RunProps, spacing: LineSpacing) -> String {
+        self.text_expr_content_line(content, props, spacing, false)
+    }
+
+    fn text_expr_content_line(&self, content: &str, props: &RunProps, spacing: LineSpacing, empty_line: bool) -> String {
         let family = self.family(props);
         let size = props.size.unwrap_or(DEFAULT_SIZE);
-        let (top, bottom) = self.edges(&family, props, size, spacing);
+        let (top, bottom) = self.edges(&family, props, size, spacing, empty_line);
 
         let mut args = vec![
             format!("font: {}", typst_str(&family)),
