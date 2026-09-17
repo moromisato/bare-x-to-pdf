@@ -23,7 +23,7 @@ fn options() -> simple_converter_core::Options<'static> {
     simple_converter_core::Options {
         fonts_dir: FONTS.get_or_init(|| root().join("fonts")),
         pdfium_path: PDFIUM.get_or_init(|| {
-            root().join("prebuilds/darwin-arm64/simple-converter/libpdfium.dylib")
+            root().join("prebuilds/darwin-arm64/bare-x-to-pdf/libpdfium.dylib")
         }),
         background_scale: 2.0,
     }
