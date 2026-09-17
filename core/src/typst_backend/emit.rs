@@ -161,9 +161,34 @@ impl Emitter<'_> {
         let mut prev_paragraph = false;
         let mut prev_contextual = false;
 
-        for block in blocks {
+        let border_key = |p: &Paragraph| -> Option<(Borders, Option<Color>, i64, i64)> {
+            let b = &p.props.borders;
+            let has = [b.top, b.left, b.bottom, b.right].iter().any(|s| matches!(s, BorderSide::Line { .. }));
+            if has || p.props.shading.is_some() {
+                Some((
+                    *b,
+                    p.props.shading,
+                    (p.props.indent_left.unwrap_or(0.0) * 100.0) as i64,
+                    (p.props.indent_right.unwrap_or(0.0) * 100.0) as i64,
+                ))
+            } else {
+                None
+            }
+        };
+        let keys: Vec<Option<(Borders, Option<Color>, i64, i64)>> = blocks
+            .iter()
+            .map(|b| match b {
+                Block::Paragraph(p) => border_key(p),
+                _ => None,
+            })
+            .collect();
+
+        for (index, block) in blocks.iter().enumerate() {
             match block {
                 Block::Paragraph(p) => {
+                    let key = &keys[index];
+                    let first_in_group = key.is_none() || index == 0 || keys[index - 1] != *key;
+                    let last_in_group = key.is_none() || index + 1 == keys.len() || keys[index + 1] != *key;
                     let before = p.props.space_before.unwrap_or(0.0);
                     let same_style = prev_paragraph && p.props.style_id.as_deref() == prev_style;
                     let contextual = p.props.contextual_spacing.unwrap_or(false);
@@ -174,7 +199,7 @@ impl Emitter<'_> {
                     } else {
                         lower.max(upper)
                     };
-                    self.paragraph(p, gap, &mut out);
+                    self.paragraph(p, gap, first_in_group, last_in_group, &mut out);
                     prev_after = p.props.space_after.unwrap_or(0.0);
                     prev_style = p.props.style_id.as_deref();
                     prev_paragraph = true;
@@ -198,7 +223,7 @@ impl Emitter<'_> {
         out
     }
 
-    fn paragraph(&self, p: &Paragraph, gap: f64, out: &mut String) {
+    fn paragraph(&self, p: &Paragraph, gap: f64, first_in_group: bool, last_in_group: bool, out: &mut String) {
         if p.props.page_break_before == Some(true) {
             out.push_str("#pagebreak()\n");
         }
@@ -219,16 +244,25 @@ impl Emitter<'_> {
             if index > 0 {
                 out.push_str("#pagebreak()\n");
             }
-            self.paragraph_part(p, part, if index == 0 { gap } else { 0.0 }, out);
+            self.paragraph_part(p, part, if index == 0 { gap } else { 0.0 }, first_in_group, last_in_group, out);
         }
     }
 
-    fn paragraph_part(&self, p: &Paragraph, inlines: &[&Inline], gap: f64, out: &mut String) {
+    fn paragraph_part(&self, p: &Paragraph, inlines: &[&Inline], gap: f64, first_in_group: bool, last_in_group: bool, out: &mut String) {
         if gap > 0.01 {
             let _ = writeln!(out, "#v({})", pt(gap));
         }
 
         let spacing = p.props.line_spacing.unwrap_or(LineSpacing::Multiple(1.0));
+        let lead_props = inlines
+            .iter()
+            .find_map(|i| match i {
+                Inline::Text { props, .. } => Some(props),
+                _ => None,
+            })
+            .unwrap_or(&p.mark);
+        let leading = 0.0;
+        let _ = lead_props;
 
         let left = p.props.indent_left.unwrap_or(0.0);
         let right = p.props.indent_right.unwrap_or(0.0);
@@ -317,7 +351,8 @@ impl Emitter<'_> {
         }
 
         let mut expr = format!(
-            "par(leading: 0pt, justify: {}, first-line-indent: (amount: {}, all: true), hanging-indent: {})[{}]",
+            "par(leading: {}, justify: {}, first-line-indent: (amount: {}, all: true), hanging-indent: {})[{}]",
+            pt(leading),
             align == Align::Justify,
             pt(first),
             pt(hanging),
@@ -336,16 +371,22 @@ impl Emitter<'_> {
                 .shading
                 .map(|c| format!("rgb({})", typst_str(&c.hex())))
                 .unwrap_or_else(|| "none".into());
+            let top = if first_in_group { b.top } else { BorderSide::None };
+            let bottom = if last_in_group { b.bottom } else { BorderSide::None };
+            let inset_for = |side: BorderSide| match side {
+                BorderSide::Line { width, .. } => space + width,
+                _ => 0.0,
+            };
             expr = format!(
                 "block(width: 100%, fill: {fill}, stroke: (top: {}, bottom: {}, left: {}, right: {}), inset: (top: {}, bottom: {}, left: {}, right: {}), {expr})",
-                stroke(b.top),
-                stroke(b.bottom),
+                stroke(top),
+                stroke(bottom),
                 stroke(b.left),
                 stroke(b.right),
-                pt(if matches!(b.top, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 }),
-                pt(if matches!(b.bottom, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 }),
-                pt(if matches!(b.left, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 }),
-                pt(if matches!(b.right, BorderSide::Line { .. }) { space + 1.0 } else { 0.0 })
+                pt(inset_for(top)),
+                pt(inset_for(bottom)),
+                pt(inset_for(b.left)),
+                pt(inset_for(b.right))
             );
         }
         if pad_left.abs() > 0.01 || right.abs() > 0.01 {
