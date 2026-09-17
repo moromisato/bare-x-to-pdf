@@ -1,0 +1,8 @@
+[target.aarch64-linux-android]
+rustflags = ["-Clink-arg=--target=aarch64-linux-android29"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-Clink-arg=--target=armv7a-linux-androideabi29"]
+
+[target.x86_64-linux-android]
+rustflags = ["-Clink-arg=--target=x86_64-linux-android29"]
