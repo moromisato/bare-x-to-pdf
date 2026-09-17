@@ -286,8 +286,8 @@ impl Styles {
                 None => {}
             }
             if let Some(border) = g.attr("border").filter(|b| *b != "none") {
-                if let Some(b) = parse_border(border) {
-                    props.stroke = Some(b);
+                if let Some((w, c, _)) = parse_border(border) {
+                    props.stroke = Some((w, c));
                 }
             } else if g.attr("border") == Some("none") {
                 props.stroke = None;
@@ -420,7 +420,7 @@ impl Styles {
             match value {
                 None => BorderSide::Unset,
                 Some("none") => BorderSide::None,
-                Some(v) => parse_border(v).map(|(w, c)| BorderSide::Line { width: w, color: c }).unwrap_or(BorderSide::None),
+                Some(v) => parse_border(v).map(|(w, c, s)| BorderSide::Line { width: w, color: c, style: s }).unwrap_or(BorderSide::None),
             }
         };
         let all = side(p.attr("border"));
@@ -449,9 +449,10 @@ impl Styles {
     }
 }
 
-fn parse_border(value: &str) -> Option<(f64, Color)> {
+fn parse_border(value: &str) -> Option<(f64, Color, LineStyle)> {
     let mut width = 0.5;
     let mut color = Color(0, 0, 0);
+    let mut style = LineStyle::Solid;
     for part in value.split_whitespace() {
         if part == "none" || part == "hidden" {
             return None;
@@ -460,9 +461,11 @@ fn parse_border(value: &str) -> Option<(f64, Color)> {
             color = c;
         } else if let Some(w) = length(part) {
             width = w.max(0.25);
+        } else {
+            style = LineStyle::from_name(part);
         }
     }
-    Some((width, color))
+    Some((width, color, style))
 }
 
 fn parse_style(el: &Element, fonts: &HashMap<String, String>) -> Style {
@@ -531,7 +534,7 @@ fn parse_paragraph_properties(p: &Element) -> ParagraphProps {
         match value {
             None => BorderSide::Unset,
             Some("none") => BorderSide::None,
-            Some(v) => parse_border(v).map(|(w, c)| BorderSide::Line { width: w, color: c }).unwrap_or(BorderSide::None),
+            Some(v) => parse_border(v).map(|(w, c, s)| BorderSide::Line { width: w, color: c, style: s }).unwrap_or(BorderSide::None),
         }
     };
     let all = side(p.attr("border"));

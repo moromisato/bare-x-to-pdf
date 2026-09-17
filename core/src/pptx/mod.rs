@@ -946,6 +946,7 @@ fn parse_table(tbl: &Element, ctx: &SlideCtx) -> Table {
                             BorderSide::Line {
                                 width: ln.attr("w").and_then(emu).unwrap_or(0.75),
                                 color: ln.child("solidFill").and_then(|f| resolve_child(f, &ctx.colors)).unwrap_or(Color(0, 0, 0)),
+                                style: LineStyle::Solid,
                             }
                         };
                         match side {
@@ -975,7 +976,7 @@ fn parse_table(tbl: &Element, ctx: &SlideCtx) -> Table {
                         text_color = Some(white);
                         bold = true;
                     }
-                    let border = BorderSide::Line { width: 1.0, color: white };
+                    let border = BorderSide::Line { width: 1.0, color: white, style: LineStyle::Solid };
                     for side in [&mut cell.borders.top, &mut cell.borders.left, &mut cell.borders.bottom, &mut cell.borders.right] {
                         if *side == BorderSide::Unset {
                             *side = border;
@@ -983,7 +984,7 @@ fn parse_table(tbl: &Element, ctx: &SlideCtx) -> Table {
                     }
                 }
                 TableLook::Grid => {
-                    let border = BorderSide::Line { width: 0.75, color: text_default };
+                    let border = BorderSide::Line { width: 0.75, color: text_default, style: LineStyle::Solid };
                     for side in [&mut cell.borders.top, &mut cell.borders.left, &mut cell.borders.bottom, &mut cell.borders.right] {
                         if *side == BorderSide::Unset {
                             *side = border;

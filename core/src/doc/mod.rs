@@ -1295,7 +1295,7 @@ impl Reader<'_> {
                     ..Cell::default()
                 };
                 if tap.borders_default {
-                    let border = BorderSide::Line { width: 0.5, color: Color(0, 0, 0) };
+                    let border = BorderSide::Line { width: 0.5, color: Color(0, 0, 0), style: LineStyle::Solid };
                     for side in [&mut cell.borders.top, &mut cell.borders.left, &mut cell.borders.bottom, &mut cell.borders.right] {
                         if *side == BorderSide::Unset {
                             *side = border;
@@ -1466,7 +1466,16 @@ fn brc80(op: &[u8], at: usize) -> BorderSide {
     if kind == 0 || width == 0 {
         return BorderSide::None;
     }
-    BorderSide::Line { width: (width as f64 / 8.0).max(0.25), color: ico_color(ico).unwrap_or(Color(0, 0, 0)) }
+    BorderSide::Line { width: (width as f64 / 8.0).max(0.25), color: ico_color(ico).unwrap_or(Color(0, 0, 0)), style: brc_style(kind) }
+}
+
+fn brc_style(kind: u8) -> LineStyle {
+    match kind {
+        3 | 10..=19 | 21 => LineStyle::Double,
+        6 => LineStyle::Dotted,
+        7 | 8 | 9 | 22 | 23 => LineStyle::Dashed,
+        _ => LineStyle::Solid,
+    }
 }
 
 fn brc(op: &[u8], at: usize) -> BorderSide {
@@ -1479,7 +1488,7 @@ fn brc(op: &[u8], at: usize) -> BorderSide {
     if kind == 0 || kind == 0xFF || width == 0 {
         return BorderSide::None;
     }
-    BorderSide::Line { width: (width as f64 / 8.0).max(0.25), color: if cv == 0xFF00_0000 { Color(0, 0, 0) } else { colorref(cv) } }
+    BorderSide::Line { width: (width as f64 / 8.0).max(0.25), color: if cv == 0xFF00_0000 { Color(0, 0, 0) } else { colorref(cv) }, style: brc_style(kind) }
 }
 
 fn shd80_color(shd: u16) -> Option<Color> {

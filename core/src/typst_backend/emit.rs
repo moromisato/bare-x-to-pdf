@@ -407,7 +407,7 @@ impl Emitter<'_> {
                     x = None;
                 }
                 Inline::Footnote(blocks) => {
-                    let _ = write!(body, "#footnote[{}]", self.blocks(blocks, false));
+                    let _ = write!(body, "#footnote[{}]", self.footnote_body(blocks));
                     x = None;
                 }
                 Inline::Field { kind, props } => {
@@ -482,6 +482,32 @@ impl Emitter<'_> {
 
         let _ = writeln!(out, "#{expr}");
         self.para_line.set(outer_line);
+    }
+
+    fn footnote_body(&self, blocks: &[Block]) -> String {
+        match blocks {
+            [Block::Paragraph(p)] => {
+                let spacing = p.props.line_spacing.unwrap_or(LineSpacing::Multiple(1.0));
+                let mut out = String::new();
+                for inline in &p.inlines {
+                    match inline {
+                        Inline::Text { text, props } if !text.is_empty() => out.push_str(&self.text_expr(text, props, spacing)),
+                        Inline::Tab => out.push_str("#h(1em)"),
+                        Inline::LineBreak => out.push_str("#linebreak()"),
+                        Inline::Drawing(drawing) => {
+                            let _ = write!(out, "#box({})", self.drawing_expr(drawing));
+                        }
+                        _ => {}
+                    }
+                }
+                if out.is_empty() {
+                    self.text_expr("\u{a0}", &p.mark, spacing)
+                } else {
+                    out
+                }
+            }
+            _ => self.blocks(blocks, false),
+        }
     }
 
     fn paragraph_line_height(&self, p: &Paragraph, inlines: &[&Inline]) -> Option<f64> {
@@ -1028,7 +1054,11 @@ fn array(items: &[f64]) -> String {
 
 fn stroke(side: BorderSide) -> String {
     match side {
-        BorderSide::Line { width, color } => format!("{} + rgb({})", pt(width), typst_str(&color.hex())),
+        BorderSide::Line { width, color, style } => match style {
+            LineStyle::Dotted => format!("(paint: rgb({}), thickness: {}, dash: \"dotted\")", typst_str(&color.hex()), pt(width)),
+            LineStyle::Dashed => format!("(paint: rgb({}), thickness: {}, dash: \"dashed\")", typst_str(&color.hex()), pt(width)),
+            _ => format!("{} + rgb({})", pt(width), typst_str(&color.hex())),
+        },
         _ => "none".to_string(),
     }
 }

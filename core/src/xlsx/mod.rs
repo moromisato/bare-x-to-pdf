@@ -337,7 +337,7 @@ fn parse_borders(b: &Element, theme: &Theme) -> Borders {
             Some(_) => 0.5,
         };
         let color = el.child("color").and_then(|c| parse_color(c, theme)).unwrap_or(Color(0, 0, 0));
-        BorderSide::Line { width, color }
+        BorderSide::Line { width, color, style: LineStyle::from_name(el.attr("style").unwrap_or("")) }
     };
     Borders {
         top: side("top"),
@@ -762,8 +762,8 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             content_scale: 1.0,
             ..Section::default()
         };
-        section.header_default = page.header.as_deref().map(|h| header_footer(h, name));
-        section.footer_default = page.footer.as_deref().map(|f| header_footer(f, name));
+        section.header_default = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right));
+        section.footer_default = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right));
         return vec![section];
     }
     let printable_w = page.width - page.margin_left - page.margin_right;
@@ -812,8 +812,8 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
         }
     }
 
-    let header = page.header.as_deref().map(|h| header_footer(h, name));
-    let footer = page.footer.as_deref().map(|f| header_footer(f, name));
+    let header = page.header.as_deref().map(|h| header_footer(h, name, page.width - page.margin_left - page.margin_right));
+    let footer = page.footer.as_deref().map(|f| header_footer(f, name, page.width - page.margin_left - page.margin_right));
 
     let mut sections = Vec::new();
     for (rg, cg) in order {
@@ -873,7 +873,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
         let printable = (sheet.page.width - sheet.page.margin_left - sheet.page.margin_right) / scale;
         table.indent = ((printable - total) / 2.0).max(0.0);
     }
-    let grid_border = BorderSide::Line { width: 0.25, color: Color(128, 128, 128) };
+    let grid_border = BorderSide::Line { width: 0.25, color: Color(128, 128, 128), style: LineStyle::Solid };
 
     for &r in rows {
         let data = sheet.rows.get(&r);
@@ -1009,7 +1009,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
     table
 }
 
-fn header_footer(code: &str, sheet_name: &str) -> Vec<Block> {
+fn header_footer(code: &str, sheet_name: &str, width: f64) -> Vec<Block> {
     let mut parts: [String; 3] = [String::new(), String::new(), String::new()];
     let mut current = 1usize;
     let mut chars = code.chars().peekable();
@@ -1056,7 +1056,7 @@ fn header_footer(code: &str, sheet_name: &str) -> Vec<Block> {
     flush(&mut parts, &mut fields, current);
 
     let mut table = Table {
-        columns: vec![156.0, 156.0, 156.0],
+        columns: vec![width / 3.0; 3],
         cell_margins: CellMargins { top: Some(0.0), left: Some(0.0), bottom: Some(0.0), right: Some(0.0) },
         ..Table::default()
     };

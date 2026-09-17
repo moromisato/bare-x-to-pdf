@@ -938,6 +938,7 @@ pub(crate) fn parse_borders(el: &Element) -> Borders {
                     .filter(|c| *c != "auto")
                     .and_then(Color::parse_hex)
                     .unwrap_or(Color(0, 0, 0)),
+                style: LineStyle::from_name(side.attr("val").unwrap_or("")),
             },
         };
         match side.name.as_str() {

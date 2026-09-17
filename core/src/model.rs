@@ -346,7 +346,31 @@ pub enum BorderSide {
     #[default]
     Unset,
     None,
-    Line { width: f64, color: Color },
+    Line { width: f64, color: Color, style: LineStyle },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineStyle {
+    #[default]
+    Solid,
+    Dotted,
+    Dashed,
+    Double,
+}
+
+impl LineStyle {
+    pub fn from_name(name: &str) -> LineStyle {
+        let n = name.to_ascii_lowercase();
+        if n.contains("double") || n.contains("triple") || (n.contains("thin") && n.contains("thick")) {
+            LineStyle::Double
+        } else if n.contains("dash") {
+            LineStyle::Dashed
+        } else if n.contains("dot") {
+            LineStyle::Dotted
+        } else {
+            LineStyle::Solid
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
