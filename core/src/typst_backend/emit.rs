@@ -574,12 +574,41 @@ impl Emitter<'_> {
     }
 
     fn text_expr_line(&self, text: &str, props: &RunProps, spacing: LineSpacing, empty_line: bool) -> String {
-        let content = if props.caps == Some(true) {
-            text.to_uppercase()
-        } else {
-            text.to_owned()
-        };
-        self.text_expr_content_line(&typst_str(&content), props, spacing, empty_line)
+        if props.caps == Some(true) {
+            return self.text_expr_content_line(&typst_str(&text.to_uppercase()), props, spacing, empty_line);
+        }
+        if props.small_caps == Some(true) && text.chars().any(char::is_lowercase) {
+            let family = self.family(props);
+            let size = props.size.unwrap_or(DEFAULT_SIZE);
+            let (top, bottom) = self.edges(&family, props, size, spacing, empty_line);
+            let mut small = props.clone();
+            small.size = Some(size * 0.8);
+            let mut out = String::new();
+            let mut segment = String::new();
+            let mut segment_lower = false;
+            let flush = |segment: &mut String, lower: bool, out: &mut String| {
+                if segment.is_empty() {
+                    return;
+                }
+                if lower {
+                    out.push_str(&self.text_with_edges(&typst_str(&segment.to_uppercase()), &small, &family, size * 0.8, top, bottom));
+                } else {
+                    out.push_str(&self.text_with_edges(&typst_str(segment), props, &family, size, top, bottom));
+                }
+                segment.clear();
+            };
+            for ch in text.chars() {
+                let lower = ch.is_lowercase();
+                if lower != segment_lower {
+                    flush(&mut segment, segment_lower, &mut out);
+                    segment_lower = lower;
+                }
+                segment.push(ch);
+            }
+            flush(&mut segment, segment_lower, &mut out);
+            return out;
+        }
+        self.text_expr_content_line(&typst_str(text), props, spacing, empty_line)
     }
 
     fn text_expr_content(&self, content: &str, props: &RunProps, spacing: LineSpacing) -> String {
@@ -590,13 +619,19 @@ impl Emitter<'_> {
         let family = self.family(props);
         let size = props.size.unwrap_or(DEFAULT_SIZE);
         let (top, bottom) = self.edges(&family, props, size, spacing, empty_line);
+        self.text_with_edges(content, props, &family, size, top, bottom)
+    }
 
+    fn text_with_edges(&self, content: &str, props: &RunProps, family: &str, size: f64, top: f64, bottom: f64) -> String {
         let mut args = vec![
-            format!("font: {}", typst_str(&family)),
+            format!("font: {}", typst_str(family)),
             format!("size: {}", pt(size)),
             format!("top-edge: {}", pt(top)),
             format!("bottom-edge: -{}", pt(bottom)),
         ];
+        if let Some(spacing) = props.letter_spacing.filter(|s| s.abs() > 0.001) {
+            args.push(format!("tracking: {}", pt(spacing)));
+        }
         if props.bold == Some(true) {
             args.push("weight: \"bold\"".into());
         }
@@ -608,9 +643,6 @@ impl Emitter<'_> {
         }
 
         let mut expr = format!("text({}, {})", args.join(", "), content);
-        if props.small_caps == Some(true) {
-            expr = format!("smallcaps({expr})");
-        }
         if props.underline == Some(true) {
             expr = format!("underline({expr})");
         }

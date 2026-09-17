@@ -165,6 +165,9 @@ pub fn parse_rpr(el: &Element, theme: &Theme, colors: &ColorContext) -> RunProps
     if let Some(size) = el.attr("sz").and_then(|v| v.parse::<f64>().ok()) {
         props.size = Some(size / 100.0);
     }
+    if let Some(spacing) = el.attr("spc").and_then(|v| v.parse::<f64>().ok()) {
+        props.letter_spacing = Some(spacing / 100.0);
+    }
     if let Some(b) = el.attr("b") {
         props.bold = Some(b == "1" || b == "true");
     }

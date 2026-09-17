@@ -104,7 +104,18 @@ pub fn debug(bytes: &[u8]) -> Result<String, Error> {
         lists.lfos.len()
     );
     for (lsid, def) in &lists.lists {
-        out.push_str(&format!("  list {lsid:#x}: {} levels, lvl0 nfc={} start={} text={:?} follow={}\n", def.levels.len(), def.levels.first().map(|l| l.nfc).unwrap_or(0), def.levels.first().map(|l| l.start).unwrap_or(0), def.levels.first().map(|l| l.text.clone()).unwrap_or_default(), def.levels.first().map(|l| l.follow).unwrap_or(0)));
+        out.push_str(&format!("  list {lsid:#x}: {} levels\n", def.levels.len()));
+        for (i, level) in def.levels.iter().enumerate() {
+            out.push_str(&format!(
+                "    lvl{i}: nfc={} start={} follow={} text={:?} papx={:02x?} chpx={:02x?}\n",
+                level.nfc,
+                level.start,
+                level.follow,
+                String::from_utf16_lossy(&level.text),
+                level.papx,
+                level.chpx
+            ));
+        }
     }
     for (i, lfo) in lists.lfos.iter().enumerate() {
         out.push_str(&format!("  lfo {}: lsid={:#x} overrides={}\n", i + 1, lfo.lsid, lfo.overrides.len()));
@@ -994,6 +1005,10 @@ impl Reader<'_> {
             if !table_rows.is_empty() {
                 blocks.push(Block::Table(self.table(std::mem::take(&mut table_rows), footnotes)));
             }
+            if std::env::var_os("SIMPLE_CONVERTER_DOC_TRACE").is_some() {
+                let text: String = para.iter().map(|c| c.ch).filter(|c| !c.is_control()).take(40).collect();
+                eprintln!("para istd={istd} ilfo={ilfo} ilvl={ilvl} {text:?}");
+            }
             blocks.push(Block::Paragraph(self.paragraph(&para, props, istd, ilfo, ilvl, footnotes)));
         }
         if !table_rows.is_empty() {
@@ -1014,36 +1029,6 @@ impl Reader<'_> {
         let (_, base) = self.styles.paragraph(istd);
         let mut props = props;
         let mut list = None;
-        if ilfo != 0 && ilfo != 0x07FF {
-            if let Some((lsid, level)) = self.lists.level(ilfo, ilvl) {
-                let mut lvl_props = ParagraphProps::default();
-                for sprm in SprmIter::new(&level.papx) {
-                    apply_paragraph_sprm(&sprm, &mut lvl_props, None);
-                }
-                let mut merged = lvl_props;
-                merged.merge(&props);
-                if props.indent_left.is_none() {
-                    merged.indent_left = merged.indent_left.or(props.indent_left);
-                }
-                props = merged;
-                let mut label_props = base.clone();
-                for sprm in SprmIter::new(&level.chpx) {
-                    apply_character_sprm(&sprm, &mut label_props, self.fonts, None);
-                }
-                if let Some(text) = self.list_label(lsid, ilvl, &level) {
-                    list = Some(ListLabel {
-                        text,
-                        props: label_props,
-                        tab_pos: None,
-                        suffix: match level.follow {
-                            1 => ListSuffix::Space,
-                            2 => ListSuffix::Nothing,
-                            _ => ListSuffix::Tab,
-                        },
-                    });
-                }
-            }
-        }
 
         let first_fc = chars.first().map(|c| c.fc).unwrap_or(0);
         let last_fc = chars.last().map(|c| c.fc + if self.piece_for(chars.last().unwrap().cp).map(|p| p.compressed).unwrap_or(true) { 1 } else { 2 }).unwrap_or(first_fc);
@@ -1178,6 +1163,36 @@ impl Reader<'_> {
             }
         }
         flush(&mut buffer, &buffer_props, &mut inlines);
+        if ilfo != 0 && ilfo != 0x07FF {
+            if let Some((lsid, level)) = self.lists.level(ilfo, ilvl) {
+                let mut lvl_props = ParagraphProps::default();
+                for sprm in SprmIter::new(&level.papx) {
+                    apply_paragraph_sprm(&sprm, &mut lvl_props, None);
+                }
+                let mut merged = lvl_props;
+                merged.merge(&props);
+                if props.indent_left.is_none() {
+                    merged.indent_left = merged.indent_left.or(props.indent_left);
+                }
+                props = merged;
+                let mut label_props = mark.clone();
+                for sprm in SprmIter::new(&level.chpx) {
+                    apply_character_sprm(&sprm, &mut label_props, self.fonts, None);
+                }
+                if let Some(text) = self.list_label(lsid, ilvl, &level) {
+                    list = Some(ListLabel {
+                        text,
+                        props: label_props,
+                        tab_pos: None,
+                        suffix: match level.follow {
+                            1 => ListSuffix::Space,
+                            2 => ListSuffix::Nothing,
+                            _ => ListSuffix::Tab,
+                        },
+                    });
+                }
+            }
+        }
 
         Paragraph { props, mark, inlines, anchors: Vec::new(), list }
     }
@@ -1652,6 +1667,7 @@ fn apply_character_sprm(sprm: &Sprm, props: &mut RunProps, fonts: &[String], sty
         0x083C => props.hidden = toggle(props.hidden, style_base.and_then(|b| b.hidden)),
         0x2A3E => props.underline = Some(sprm.byte() != 0),
         0x4A43 => props.size = Some(sprm.word() as f64 / 2.0),
+        0x8840 => props.letter_spacing = Some(sprm.word() as i16 as f64 / 20.0),
         0x4A4F => {
             if let Some(f) = fonts.get(sprm.word() as usize).filter(|f| !f.is_empty()) {
                 props.font = Some(f.clone());

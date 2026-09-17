@@ -275,6 +275,7 @@ pub fn parse_rpr(rpr: &Element, theme: &ThemeFonts) -> RunProps {
                 }
             }
             "sz" => props.size = el.attr("val").and_then(half_points),
+            "spacing" => props.letter_spacing = el.attr("val").and_then(|v| v.parse::<f64>().ok()).map(|v| v / 20.0),
             "b" => props.bold = Some(flag(el)),
             "i" => props.italic = Some(flag(el)),
             "u" => props.underline = Some(!matches!(el.attr("val"), Some("none"))),

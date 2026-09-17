@@ -594,6 +594,9 @@ fn parse_text_properties(t: &Element, fonts: &HashMap<String, String>) -> (RunPr
             props.size = Some(v);
         }
     }
+    if let Some(spacing) = t.attr("letter-spacing") {
+        props.letter_spacing = if spacing == "normal" { Some(0.0) } else { length(spacing) };
+    }
     if let Some(w) = t.attr("font-weight") {
         props.bold = Some(w == "bold" || w.parse::<u32>().map(|n| n >= 600).unwrap_or(false));
     }

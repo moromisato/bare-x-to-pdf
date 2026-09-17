@@ -298,6 +298,7 @@ pub struct RunProps {
     pub caps: Option<bool>,
     pub small_caps: Option<bool>,
     pub hidden: Option<bool>,
+    pub letter_spacing: Option<f64>,
 }
 
 impl RunProps {
@@ -316,6 +317,7 @@ impl RunProps {
         merge(&mut self.caps, other.caps);
         merge(&mut self.small_caps, other.small_caps);
         merge(&mut self.hidden, other.hidden);
+        merge(&mut self.letter_spacing, other.letter_spacing);
     }
 }
 
