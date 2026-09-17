@@ -43,10 +43,6 @@ jobs:
             triple: armv7-linux-androideabi
           - os: ubuntu-24.04
             platform: android
-            arch: ia32
-            triple: i686-linux-android
-          - os: ubuntu-24.04
-            platform: android
             arch: x64
             triple: x86_64-linux-android
           - os: macos-14
