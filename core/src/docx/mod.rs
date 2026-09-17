@@ -85,6 +85,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     };
 
     let mut doc = Document {
+        borders_outside_indent: true,
         default_tab: 36.0,
         ..Document::default()
     };
@@ -345,16 +346,11 @@ impl Reader<'_> {
             let (text, level) = self.counters.borrow_mut().next(self.numbering, &id, ilvl)?;
             let mut label_props = mark.clone();
             label_props.merge(&level.rpr);
-            if matches!(
-                label_props.font.as_deref().map(str::to_lowercase).as_deref(),
-                Some("symbol") | Some("wingdings") | Some("wingdings 2") | Some("wingdings 3") | Some("webdings")
-            ) {
-                label_props.font = mark.font.clone();
-            }
             Some(ListLabel {
                 text,
                 props: label_props,
                 suffix: level.suffix,
+                tab_pos: None,
             })
         });
 

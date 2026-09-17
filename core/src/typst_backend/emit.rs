@@ -65,7 +65,7 @@ impl Emitter<'_> {
         let _ = writeln!(self.out, "#set block(above: 0pt, below: 0pt)");
         let _ = writeln!(
             self.out,
-            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})"
+            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let lbl(label, x0, left, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = if end <= left + 0.01 {{ left }} else {{ let c = stops.filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= left {{ left + (calc.floor((end - left) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, label) }}"
         );
     }
 
@@ -278,7 +278,19 @@ impl Emitter<'_> {
             let label_expr = self.text_expr(&label.text, &label.props, spacing);
             match label.suffix {
                 ListSuffix::Tab if hanging > 0.01 => {
-                    let _ = write!(body, "#box(width: {}, {})", pt(hanging), label_expr.trim_start_matches('#'));
+                    let mut label_stops = stops.clone();
+                    label_stops.extend(label.tab_pos);
+                    let tab = if self.doc.default_tab > 0.01 { self.doc.default_tab } else { 36.0 };
+                    let _ = write!(
+                        body,
+                        "#lbl({}, {}, {}, {}, {}, {})",
+                        label_expr.trim_start_matches('#'),
+                        trim_num(left - hanging + first),
+                        trim_num(left),
+                        array(&label_stops),
+                        trim_num(tab),
+                        self.doc.tabs_relative_to_indent
+                    );
                     x = Some(left);
                 }
                 ListSuffix::Tab => {
@@ -310,7 +322,7 @@ impl Emitter<'_> {
                 Inline::Tab => {
                     let advance = match x {
                         Some(current) => {
-                            let next = next_tab_stop(current, &stops, left, hanging, self.doc.default_tab);
+                            let next = next_tab_stop(current, &stops, left, hanging, self.doc.default_tab, self.doc.tabs_relative_to_indent);
                             x = Some(next);
                             next - current
                         }
@@ -360,8 +372,8 @@ impl Emitter<'_> {
         );
 
         let (wrap_left, wrap_right) = self.wrap_padding(p);
-        let pad_left = left - hanging + wrap_left;
-        let right = right + wrap_right;
+        let mut pad_left = left - hanging + wrap_left;
+        let mut right = right + wrap_right;
         let b = &p.props.borders;
         let has_border = [b.top, b.left, b.bottom, b.right].iter().any(|s| matches!(s, BorderSide::Line { .. }));
         if has_border || p.props.shading.is_some() {
@@ -373,20 +385,26 @@ impl Emitter<'_> {
                 .unwrap_or_else(|| "none".into());
             let top = if first_in_group { b.top } else { BorderSide::None };
             let bottom = if last_in_group { b.bottom } else { BorderSide::None };
-            let inset_for = |side: BorderSide| match side {
-                BorderSide::Line { width, .. } => space + width,
+            let inset_for = |side: BorderSide, gap: f64| match side {
+                BorderSide::Line { width, .. } => gap + width,
                 _ => 0.0,
             };
+            let inset_left = inset_for(b.left, space.left);
+            let inset_right = inset_for(b.right, space.right);
+            if self.doc.borders_outside_indent {
+                pad_left -= inset_left;
+                right -= inset_right;
+            }
             expr = format!(
                 "block(width: 100%, fill: {fill}, stroke: (top: {}, bottom: {}, left: {}, right: {}), inset: (top: {}, bottom: {}, left: {}, right: {}), {expr})",
                 stroke(top),
                 stroke(bottom),
                 stroke(b.left),
                 stroke(b.right),
-                pt(inset_for(top)),
-                pt(inset_for(bottom)),
-                pt(inset_for(b.left)),
-                pt(inset_for(b.right))
+                pt(inset_for(top, space.top)),
+                pt(inset_for(bottom, space.bottom)),
+                pt(inset_left),
+                pt(inset_right)
             );
         }
         if pad_left.abs() > 0.01 || right.abs() > 0.01 {
@@ -883,9 +901,9 @@ fn trim_num(value: f64) -> String {
     format!("{rounded}")
 }
 
-fn next_tab_stop(x: f64, stops: &[f64], left: f64, hanging: f64, default_tab: f64) -> f64 {
+fn next_tab_stop(x: f64, stops: &[f64], left: f64, hanging: f64, default_tab: f64, relative_to_indent: bool) -> f64 {
     let mut candidates: Vec<f64> = stops.iter().copied().filter(|s| *s > x + 0.01).collect();
-    if hanging > 0.01 && left > x + 0.01 {
+    if (hanging > 0.01 || relative_to_indent) && left > x + 0.01 {
         candidates.push(left);
     }
     if let Some(min) = candidates.iter().copied().fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a| a.min(v)))) {
@@ -894,7 +912,17 @@ fn next_tab_stop(x: f64, stops: &[f64], left: f64, hanging: f64, default_tab: f6
     if default_tab <= 0.01 {
         return x + 36.0;
     }
-    ((x / default_tab).floor() + 1.0) * default_tab
+    let origin = if relative_to_indent { left } else { 0.0 };
+    origin + (((x - origin) / default_tab).floor() + 1.0) * default_tab
+}
+
+fn array(items: &[f64]) -> String {
+    let parts: Vec<String> = items.iter().map(|v| trim_num(*v)).collect();
+    if parts.len() == 1 {
+        format!("({},)", parts[0])
+    } else {
+        format!("({})", parts.join(", "))
+    }
 }
 
 fn stroke(side: BorderSide) -> String {

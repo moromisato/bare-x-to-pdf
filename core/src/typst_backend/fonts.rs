@@ -77,6 +77,8 @@ impl FontSet {
         }
 
         let alias = match lower.as_str() {
+            "symbol" | "wingdings" | "wingdings 2" | "wingdings 3" | "webdings" | "opensymbol" | "starsymbol"
+            | "starbats" => "OpenSymbol",
             "calibri" | "calibri light" | "carlito" => "Carlito",
             "cambria" | "cambria math" | "caladea" => "Caladea",
             "arial" | "arial narrow" | "helvetica" | "helvetica neue" | "arimo" | "albany" => SANS,

@@ -42,6 +42,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     let headers = reader.headers(sections.len());
 
     let mut doc = Document {
+        borders_outside_indent: true,
         default_tab: 36.0,
         additive_spacing: false,
         ..Document::default()
@@ -1032,6 +1033,7 @@ impl Reader<'_> {
                     list = Some(ListLabel {
                         text,
                         props: label_props,
+                        tab_pos: None,
                         suffix: match level.follow {
                             1 => ListSuffix::Space,
                             2 => ListSuffix::Nothing,
@@ -1567,27 +1569,13 @@ fn apply_paragraph_sprm(sprm: &Sprm, props: &mut ParagraphProps, numbering: Opti
         0xA414 => props.space_after = Some(sprm.word() as f64 / 20.0),
         0x6424 | 0x6425 | 0x6426 | 0x6427 => {
             let side = brc80(sprm.operand, 0);
-            match sprm.opcode {
-                0x6424 => props.borders.top = side,
-                0x6425 => props.borders.left = side,
-                0x6426 => props.borders.bottom = side,
-                _ => props.borders.right = side,
-            }
-            if let Some(&space) = sprm.operand.get(3) {
-                props.border_space = props.border_space.max((space & 0x1F) as f64);
-            }
+            let space = sprm.operand.get(3).map(|s| (s & 0x1F) as f64).unwrap_or(0.0);
+            set_border(props, sprm.opcode - 0x6424, side, space);
         }
         0xC64E | 0xC64F | 0xC650 | 0xC651 => {
             let side = brc(sprm.operand, 0);
-            match sprm.opcode {
-                0xC64E => props.borders.top = side,
-                0xC64F => props.borders.left = side,
-                0xC650 => props.borders.bottom = side,
-                _ => props.borders.right = side,
-            }
-            if let Some(&space) = sprm.operand.get(6) {
-                props.border_space = props.border_space.max((space & 0x1F) as f64);
-            }
+            let space = sprm.operand.get(6).map(|s| (s & 0x1F) as f64).unwrap_or(0.0);
+            set_border(props, sprm.opcode - 0xC64E, side, space);
         }
         0x442D => props.shading = shd80_color(sprm.word()),
         0xC64D => {
@@ -1741,4 +1729,15 @@ fn cp1252(b: u8) -> char {
     let bytes = [b];
     let (out, _) = encoding_rs::WINDOWS_1252.decode_without_bom_handling(&bytes);
     out.chars().next().unwrap_or('\u{FFFD}')
+}
+
+fn set_border(props: &mut ParagraphProps, index: u16, side: BorderSide, space: f64) {
+    let (target, gap) = match index {
+        0 => (&mut props.borders.top, &mut props.border_space.top),
+        1 => (&mut props.borders.left, &mut props.border_space.left),
+        2 => (&mut props.borders.bottom, &mut props.border_space.bottom),
+        _ => (&mut props.borders.right, &mut props.border_space.right),
+    };
+    *target = side;
+    *gap = space;
 }

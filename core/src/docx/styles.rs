@@ -234,10 +234,16 @@ pub fn parse_ppr(ppr: &Element) -> ParagraphProps {
             }
             "pBdr" => {
                 props.borders = super::parse_borders(el);
-                props.border_space = el
-                    .elements()
-                    .filter_map(|b| b.attr("space").and_then(|v| v.parse::<f64>().ok()))
-                    .fold(0.0, f64::max);
+                for side in el.elements() {
+                    let space = side.attr("space").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+                    match side.name.as_str() {
+                        "top" => props.border_space.top = space,
+                        "left" | "start" => props.border_space.left = space,
+                        "bottom" => props.border_space.bottom = space,
+                        "right" | "end" => props.border_space.right = space,
+                        _ => {}
+                    }
+                }
             }
             "shd" => {
                 props.shading = el

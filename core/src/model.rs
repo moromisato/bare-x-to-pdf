@@ -34,6 +34,8 @@ pub struct Document {
     pub even_odd_headers: bool,
     pub additive_spacing: bool,
     pub fixed_line_metrics: bool,
+    pub borders_outside_indent: bool,
+    pub tabs_relative_to_indent: bool,
 }
 
 impl Document {
@@ -153,6 +155,7 @@ pub struct ListLabel {
     pub text: String,
     pub props: RunProps,
     pub suffix: ListSuffix,
+    pub tab_pos: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -188,8 +191,16 @@ pub struct ParagraphProps {
     pub numbering: Option<(String, usize)>,
     pub tabs: Vec<TabStop>,
     pub borders: Borders,
-    pub border_space: f64,
+    pub border_space: BorderSpace,
     pub shading: Option<Color>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BorderSpace {
+    pub top: f64,
+    pub left: f64,
+    pub bottom: f64,
+    pub right: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -231,8 +242,15 @@ impl ParagraphProps {
         }
         self.tabs.extend(other.tabs.iter().copied());
         self.borders.merge(&other.borders);
-        if other.border_space > 0.0 {
-            self.border_space = other.border_space;
+        for (target, source) in [
+            (&mut self.border_space.top, other.border_space.top),
+            (&mut self.border_space.left, other.border_space.left),
+            (&mut self.border_space.bottom, other.border_space.bottom),
+            (&mut self.border_space.right, other.border_space.right),
+        ] {
+            if source > 0.0 {
+                *target = source;
+            }
         }
         merge(&mut self.shading, other.shading);
     }

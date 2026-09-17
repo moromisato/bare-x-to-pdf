@@ -73,6 +73,7 @@ pub struct ListLevel {
     pub hanging: Option<f64>,
     pub suffix: ListSuffix,
     pub rpr: Option<RunProps>,
+    pub tab_pos: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -511,7 +512,14 @@ fn parse_paragraph_properties(p: &Element) -> ParagraphProps {
             *slot = s;
         }
     }
-    props.border_space = p.attr("padding").and_then(length).unwrap_or(0.0);
+    let pad = |n: &str| p.attr(n).and_then(length);
+    let all_pad = pad("padding").unwrap_or(0.0);
+    props.border_space = BorderSpace {
+        top: pad("padding-top").unwrap_or(all_pad),
+        left: pad("padding-left").unwrap_or(all_pad),
+        bottom: pad("padding-bottom").unwrap_or(all_pad),
+        right: pad("padding-right").unwrap_or(all_pad),
+    };
     if let Some(c) = p.attr("background-color").filter(|c| *c != "transparent").and_then(Color::parse_hex) {
         props.shading = Some(c);
     }
@@ -619,9 +627,11 @@ fn parse_list(el: &Element, fonts: &HashMap<String, String>) -> Vec<Option<ListL
         let mut left = None;
         let mut hanging = None;
         let mut suffix = ListSuffix::Tab;
+        let mut tab_pos = None;
         if let Some(p) = lvl.child("list-level-properties") {
             if let Some(align) = p.child("list-level-label-alignment") {
                 left = align.attr("margin-left").and_then(length);
+                tab_pos = align.attr("list-tab-stop-position").and_then(length);
                 let indent = align.attr("text-indent").and_then(length).unwrap_or(0.0);
                 hanging = Some((-indent).max(0.0));
                 suffix = match align.attr("label-followed-by") {
@@ -637,7 +647,7 @@ fn parse_list(el: &Element, fonts: &HashMap<String, String>) -> Vec<Option<ListL
             }
         }
         let rpr = lvl.child("text-properties").map(|t| parse_text_properties(t, fonts).0);
-        levels[level - 1] = Some(ListLevel { kind, left, hanging, suffix, rpr });
+        levels[level - 1] = Some(ListLevel { kind, left, hanging, suffix, rpr, tab_pos });
     }
     levels
 }

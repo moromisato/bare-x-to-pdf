@@ -42,6 +42,16 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         .and_then(|s| find_config_item(s, "AddParaTableSpacing"))
         .map(|v| v == "true")
         .unwrap_or(true);
+    let tabs_relative_to_indent = settings
+        .as_ref()
+        .and_then(|s| find_config_item(s, "TabsRelativeToIndent"))
+        .map(|v| v == "true")
+        .unwrap_or(true);
+    let borders_outside_indent = settings
+        .as_ref()
+        .and_then(|s| find_config_item(s, "InvertBorderSpacing"))
+        .map(|v| v == "true")
+        .unwrap_or(false);
 
     let styles = Styles::parse(styles_root.as_ref(), &content);
     let body = content
@@ -61,6 +71,8 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     let mut doc = Document {
         default_tab: styles.default_tab,
         additive_spacing,
+        tabs_relative_to_indent,
+        borders_outside_indent,
         ..Document::default()
     };
 
@@ -288,6 +300,7 @@ impl Reader<'_> {
                         p
                     },
                     suffix: lvl.suffix,
+                    tab_pos: lvl.tab_pos,
                 })
             }
             _ => None,

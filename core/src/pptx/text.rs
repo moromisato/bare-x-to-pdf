@@ -350,6 +350,7 @@ fn paragraph(p: &Element, ctx: &TextContext, counters: &mut HashMap<usize, i64>)
                     text,
                     props: label_props,
                     suffix: ListSuffix::Tab,
+                    tab_pos: None,
                 })
             }
             _ => None,
@@ -395,6 +396,7 @@ fn bullet_label(ch: &str, ppr: &PPr, run: &RunProps, size: f64) -> ListLabel {
         text: map_bullet(ch),
         props,
         suffix: ListSuffix::Tab,
+        tab_pos: None,
     }
 }
 
