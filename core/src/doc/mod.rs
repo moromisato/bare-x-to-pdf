@@ -978,7 +978,9 @@ impl Reader<'_> {
             for sprm in SprmIter::new(&papx) {
                 apply_paragraph_sprm(&sprm, &mut props, Some((&mut ilfo, &mut ilvl)));
             }
-            if ilfo == 0 {
+            let direct_ilfo = ilfo;
+            let ilfo_explicit = SprmIter::new(&papx).any(|sprm| sprm.opcode == 0x460B);
+            if ilfo == 0 && !ilfo_explicit {
                 if let Some(chain_numbering) = props.numbering.clone() {
                     ilfo = chain_numbering.0.parse().unwrap_or(0);
                     ilvl = chain_numbering.1 as u8;
@@ -1007,7 +1009,7 @@ impl Reader<'_> {
             }
             if std::env::var_os("SIMPLE_CONVERTER_DOC_TRACE").is_some() {
                 let text: String = para.iter().map(|c| c.ch).filter(|c| !c.is_control()).take(40).collect();
-                eprintln!("para istd={istd} ilfo={ilfo} ilvl={ilvl} {text:?}");
+                eprintln!("para istd={istd} ilfo={ilfo} direct={direct_ilfo} ilvl={ilvl} {text:?}");
             }
             blocks.push(Block::Paragraph(self.paragraph(&para, props, istd, ilfo, ilvl, footnotes)));
         }
@@ -1256,7 +1258,7 @@ impl Reader<'_> {
         let content = find_blip(body)
             .and_then(|bytes| ImageFormat::sniff(bytes).map(|format| ImageData { data: bytes.to_vec(), format }))
             .map(DrawingContent::Image)
-            .unwrap_or(DrawingContent::Placeholder);
+            .unwrap_or(DrawingContent::Placeholder(None));
         Some(Drawing::new(width, height, content))
     }
 
