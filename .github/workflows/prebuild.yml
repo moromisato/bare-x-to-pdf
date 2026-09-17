@@ -33,8 +33,40 @@ jobs:
             platform: win32
             arch: x64
             triple: x86_64-pc-windows-msvc
+          - os: ubuntu-24.04
+            platform: android
+            arch: arm64
+            triple: aarch64-linux-android
+          - os: ubuntu-24.04
+            platform: android
+            arch: arm
+            triple: armv7-linux-androideabi
+          - os: ubuntu-24.04
+            platform: android
+            arch: ia32
+            triple: i686-linux-android
+          - os: ubuntu-24.04
+            platform: android
+            arch: x64
+            triple: x86_64-linux-android
+          - os: macos-14
+            platform: ios
+            arch: arm64
+            triple: aarch64-apple-ios
+          - os: macos-14
+            platform: ios
+            arch: arm64
+            tags: "-simulator"
+            flags: "--simulator"
+            triple: aarch64-apple-ios-sim
+          - os: macos-14
+            platform: ios
+            arch: x64
+            tags: "-simulator"
+            flags: "--simulator"
+            triple: x86_64-apple-ios
     runs-on: ${{ matrix.os }}
-    name: Build / ${{ matrix.platform }}-${{ matrix.arch }}
+    name: Build / ${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.tags }}
     steps:
       - uses: holepunchto/actions/bare-base@v1
       - uses: lukka/get-cmake@latest
@@ -45,6 +77,8 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           arch: ${{ matrix.arch }}
+          flags: ${{ matrix.flags }}
+          tags: ${{ matrix.tags }}
           upload: true
 
   merge:
