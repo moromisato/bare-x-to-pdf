@@ -340,8 +340,11 @@ impl Emitter<'_> {
         let align = p.props.align.unwrap_or_default();
         let stops = p.props.tab_stops();
         let mut x = Some(left - hanging + first);
+        let (wrap_left, wrap_right) = self.wrap_padding(p);
+        let wrap_limit = self.wrap_limit(p);
+        let split_words = (wrap_left > 0.01 || wrap_right > 0.01) && wrap_limit > 0.0;
 
-        let mut body = String::new();
+        let mut items: Vec<String> = Vec::new();
         let mut any_text = false;
         if let Some(label) = &p.list {
             let label_expr = self.text_expr(&label.text, &label.props, spacing);
@@ -350,8 +353,7 @@ impl Emitter<'_> {
                     let mut label_stops = stops.clone();
                     label_stops.extend(label.tab_pos);
                     let tab = if self.doc.default_tab > 0.01 { self.doc.default_tab } else { 36.0 };
-                    let _ = write!(
-                        body,
+                    items.push(format!(
                         "#lbl({}, {}, {}, {}, {}, {})",
                         label_expr.trim_start_matches('#'),
                         trim_num(left - hanging + first),
@@ -359,20 +361,20 @@ impl Emitter<'_> {
                         array(&label_stops),
                         trim_num(tab),
                         self.doc.tabs_relative_to_indent
-                    );
+                    ));
                     x = Some(left);
                 }
                 ListSuffix::Tab => {
-                    let _ = write!(body, "{label_expr}#h({})", pt(self.doc.default_tab));
+                    items.push(format!("{label_expr}#h({})", pt(self.doc.default_tab)));
                     x = None;
                 }
                 ListSuffix::Space => {
-                    body.push_str(&label_expr);
-                    body.push_str(&self.text_expr(" ", &label.props, spacing));
+                    items.push(label_expr.to_string());
+                    items.push(self.text_expr(" ", &label.props, spacing).to_string());
                     x = None;
                 }
                 ListSuffix::Nothing => {
-                    body.push_str(&label_expr);
+                    items.push(label_expr.to_string());
                     x = None;
                 }
             }
@@ -385,7 +387,13 @@ impl Emitter<'_> {
                         continue;
                     }
                     any_text = true;
-                    body.push_str(&self.text_expr(text, props, spacing));
+                    if split_words {
+                        for token in split_tokens(text) {
+                            items.push(self.text_expr(&token, props, spacing));
+                        }
+                    } else {
+                        items.push(self.text_expr(text, props, spacing));
+                    }
                     x = None;
                 }
                 Inline::Tab => {
@@ -398,21 +406,21 @@ impl Emitter<'_> {
                         None => self.doc.default_tab,
                     };
                     if advance > 0.01 {
-                        let _ = write!(body, "#h({})", pt(advance));
+                        items.push(format!("#h({})", pt(advance)));
                     }
                 }
                 Inline::LineBreak => {
-                    body.push_str("#linebreak()");
+                    items.push("#linebreak()".to_string());
                     x = Some(left);
                 }
                 Inline::PageBreak => {}
                 Inline::Drawing(drawing) => {
                     any_text = true;
-                    let _ = write!(body, "#box({})", self.drawing_expr(drawing));
+                    items.push(format!("#box({})", self.drawing_expr(drawing)));
                     x = None;
                 }
                 Inline::Footnote(blocks) => {
-                    let _ = write!(body, "#footnote[{}]", self.footnote_body(blocks));
+                    items.push(format!("#footnote[{}]", self.footnote_body(blocks)));
                     x = None;
                 }
                 Inline::Field { kind, props } => {
@@ -421,16 +429,17 @@ impl Emitter<'_> {
                         FieldKind::Page => format!("context counter(page).display({})", typst_str(self.page_pattern())),
                         FieldKind::NumPages => "context counter(page).final().first()".to_string(),
                     };
-                    body.push_str(&self.text_expr_content(&value, props, spacing));
+                    items.push(self.text_expr_content(&value, props, spacing).to_string());
                     x = None;
                 }
             }
         }
         let _ = x;
         if !any_text {
-            body.insert_str(0, &self.text_expr_line("\u{a0}", &p.mark, spacing, true));
+            items.insert(0, self.text_expr_line("\u{a0}", &p.mark, spacing, true));
         }
 
+        let body: String = items.concat();
         let mut expr = format!(
             "par(leading: {}, justify: {}, first-line-indent: (amount: {}, all: true), hanging-indent: {})[{}]",
             pt(leading),
@@ -440,11 +449,34 @@ impl Emitter<'_> {
             body
         );
 
-        let (wrap_left, wrap_right) = self.wrap_padding(p);
+        let right_indent = right;
         let mut pad_left = left - hanging + wrap_left;
         let mut right = right + wrap_right;
         let b = &p.props.borders;
         let has_border = [b.top, b.left, b.bottom, b.right].iter().any(|s| matches!(s, BorderSide::Line { .. }));
+        let mut padded = false;
+        if split_words && !has_border && p.props.shading.is_none() && !items.is_empty() {
+            let text_width = {
+                let page = self.page.borrow();
+                page.width - page.margin.left - page.margin.right
+            };
+            let narrow = (text_width - pad_left - right).max(10.0);
+            let code: Vec<String> = items.iter().map(|i| i.trim_start_matches('#').to_string()).collect();
+            expr = format!(
+                "context {{ let items = ({},); let n = items.len(); let mk(sel, fi, hg) = par(leading: 0pt, justify: {}, first-line-indent: (amount: fi, all: true), hanging-indent: hg)[#sel.join()]; let narrow = {}; let limit = {}; let lo = 0; let up = n; while lo < up {{ let mid = calc.ceil((lo + up) / 2); if measure(width: narrow, mk(items.slice(0, mid), {fi}, {hg})).height <= limit + 0.5pt {{ lo = mid }} else {{ up = mid - 1 }} }}; let k = if lo == 0 {{ n }} else {{ lo }}; let head = mk(items.slice(0, k), {fi}, {hg}); pad(left: {}, right: {}, head); if k < n {{ pad(left: {}, right: {}, mk(items.slice(k, n), 0pt, 0pt)) }} else {{ let used = measure(width: narrow, head).height; if used < limit {{ v(limit - used) }} }} }}",
+                code.join(", "),
+                align == Align::Justify,
+                pt(narrow),
+                pt(wrap_limit),
+                pt(pad_left),
+                pt(right),
+                pt(left),
+                pt(right_indent),
+                fi = pt(first),
+                hg = pt(hanging)
+            );
+            padded = true;
+        }
         if has_border || p.props.shading.is_some() {
             let space = p.props.border_space;
             let fill = p
@@ -476,7 +508,7 @@ impl Emitter<'_> {
                 pt(inset_right)
             );
         }
-        if pad_left.abs() > 0.01 || right.abs() > 0.01 {
+        if !padded && (pad_left.abs() > 0.01 || right.abs() > 0.01) {
             expr = format!("pad(left: {}, right: {}, {})", pt(pad_left), pt(right), expr);
         }
         match align {
@@ -717,6 +749,22 @@ impl Emitter<'_> {
             }
         }
         (left, right)
+    }
+
+    fn wrap_limit(&self, p: &Paragraph) -> f64 {
+        let mut limit = 0.0_f64;
+        for anchor in &p.anchors {
+            if !self.side_wrapped(anchor) {
+                continue;
+            }
+            let offset = match anchor.vertical {
+                VPosition::Offset(VRef::Paragraph | VRef::Line, y) => y.max(0.0),
+                VPosition::Align(VRef::Paragraph | VRef::Line, _) => 0.0,
+                _ => continue,
+            };
+            limit = limit.max(offset + anchor.drawing.height + anchor.dist_bottom);
+        }
+        limit
     }
 
     fn side_wrapped(&self, anchor: &Anchor) -> bool {
@@ -1064,6 +1112,21 @@ impl Emitter<'_> {
         }
         expr
     }
+}
+
+fn split_tokens(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        current.push(ch);
+        if ch == ' ' {
+            tokens.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
 }
 
 fn trim_num(value: f64) -> String {
