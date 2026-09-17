@@ -1425,6 +1425,9 @@ fn apply_table_sprm(sprm: &Sprm, tap: &mut Tap) {
         0x9601 => tap.gap_half = sprm.word() as i16 as f64 / 20.0,
         0xD605 | 0xD613 => {
             let op = sprm.operand;
+            if std::env::var_os("SIMPLE_CONVERTER_DOC_TRACE").is_some() {
+                eprintln!("table borders {:#x} {:02x?} cells={:?}", sprm.opcode, op, tap.cells.iter().map(|c| c.borders.top).collect::<Vec<_>>());
+            }
             let size = if sprm.opcode == 0xD605 { 4 } else { 8 };
             let read = |i: usize| if size == 4 { brc80(op, i * 4) } else { brc(op, i * 8) };
             let (top, left, bottom, right, inside_h, inside_v) = (read(0), read(1), read(2), read(3), read(4), read(5));
@@ -1567,9 +1570,9 @@ fn apply_paragraph_sprm(sprm: &Sprm, props: &mut ParagraphProps, numbering: Opti
                 _ => Align::Left,
             })
         }
-        0x840F | 0x845D => props.indent_right = Some(sprm.word() as i16 as f64 / 20.0),
-        0x8411 | 0x845E => props.indent_left = Some(sprm.word() as i16 as f64 / 20.0),
-        0x8460 | 0x8412 => {
+        0x840E | 0x845D => props.indent_right = Some(sprm.word() as i16 as f64 / 20.0),
+        0x840F | 0x845E => props.indent_left = Some(sprm.word() as i16 as f64 / 20.0),
+        0x8411 | 0x8460 => {
             let v = sprm.word() as i16 as f64 / 20.0;
             if v < 0.0 {
                 props.indent_hanging = Some(-v);
