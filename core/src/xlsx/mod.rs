@@ -990,6 +990,28 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
     sections
 }
 
+fn overflow_source(sheet: &Sheet, styles: &Styles, data: Option<&RowData>, col: u32) -> Option<(u32, f64)> {
+    let row = data?;
+    let mut shift = 0.0;
+    let mut k = col - 1;
+    while k >= sheet.first_col.max(1) {
+        shift += sheet.col_widths.get((k - 1) as usize).copied().unwrap_or(48.0);
+        if let Some(cell) = row.cells.get(&k) {
+            if !matches!(cell.value, CellValue::Empty) {
+                let xf = styles.xf(cell.style);
+                let text = matches!(cell.value, CellValue::Text(_));
+                let left = matches!(xf.h_align, None | Some(Align::Left));
+                return (!xf.wrap && text && left).then_some((k, shift));
+            }
+        }
+        if k == 1 {
+            break;
+        }
+        k -= 1;
+    }
+    None
+}
+
 fn group(items: &[u32], size: impl Fn(u32) -> f64, limit: f64, breaks: &[u32]) -> Vec<Vec<u32>> {
     let mut groups: Vec<Vec<u32>> = Vec::new();
     let mut current: Vec<u32> = Vec::new();
@@ -1056,11 +1078,18 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
                 }
                 skip_until = Some(c2);
             }
-            let cell_data = data.and_then(|d| d.cells.get(&c));
+            let mut cell_data = data.and_then(|d| d.cells.get(&c));
+            if c == cols[0] && c > sheet.first_col && covered.is_none() && cell_data.map_or(true, |d| matches!(d.value, CellValue::Empty)) {
+                if let Some((source, shift)) = overflow_source(sheet, styles, data, c) {
+                    cell_data = data.and_then(|d| d.cells.get(&source));
+                    cell.overflow_shift = Some(shift);
+                }
+            }
             let xf = styles.xf(cell_data.map(|d| d.style).unwrap_or(0));
+            let own_xf = styles.xf(data.and_then(|d| d.cells.get(&c)).map(|d| d.style).unwrap_or(0));
             let font = styles.font(xf.font).clone();
-            cell.shading = xf.fill;
-            cell.borders = xf.borders;
+            cell.shading = own_xf.fill;
+            cell.borders = own_xf.borders;
             cell.valign = xf.v_align;
             cell.no_wrap = !xf.wrap;
             if sheet.page.grid_lines {

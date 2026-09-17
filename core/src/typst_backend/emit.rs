@@ -72,7 +72,7 @@ impl Emitter<'_> {
         );
         let _ = writeln!(
             self.out,
-            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let lbl(label, x0, lft, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = if end <= lft + 0.01 {{ lft }} else {{ let c = stops.filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= lft {{ lft + (calc.floor((end - lft) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, align(left, label)) }}"
+            "#let minh(h, body) = layout(size => {{ let m = measure(width: size.width, body); block(width: 100%, height: calc.max(m.height, h), body) }})\n#let minhw(w, h, body) = context {{ let m = measure(width: w, body); block(width: 100%, height: calc.max(m.height, h), body) }}\n#let lbl(label, x0, lft, stops, tab, rel) = context {{ let end = x0 + measure(label).width.pt(); let target = {{ let c = (stops + (lft,)).filter(s => s > end + 0.01); if c.len() > 0 {{ calc.min(..c) }} else if rel and end >= lft {{ lft + (calc.floor((end - lft) / tab) + 1) * tab }} else {{ (calc.floor(end / tab) + 1) * tab }} }}; box(width: (target - x0) * 1pt, align(left, label)) }}"
         );
     }
 
@@ -992,7 +992,14 @@ impl Emitter<'_> {
                 let bottom = margins.bottom.unwrap_or(0.0);
 
                 let mut body = self.blocks(&cell.blocks, true);
-                if cell.no_wrap && !body.trim().is_empty() {
+                if let (Some(shift), false) = (cell.overflow_shift, body.trim().is_empty()) {
+                    let clip = cell.overflow_width.unwrap_or(1.0);
+                    body = format!(
+                        "#context {{ let body = [{body}]; if measure(body).width > {shift} {{ block(width: {clip}, clip: true, breakable: false, pad(left: -{shift}, block(width: 20000pt, breakable: false, body))) }} }}",
+                        shift = pt(shift),
+                        clip = pt(clip)
+                    );
+                } else if cell.no_wrap && !body.trim().is_empty() {
                     body = match (cell.halign, cell.overflow_width) {
                         (Some(Align::Right) | Some(Align::Center), _) => format!("#box[{body}]"),
                         (_, Some(width)) => format!(

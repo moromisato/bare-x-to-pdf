@@ -461,6 +461,7 @@ pub struct Cell {
     pub no_wrap: bool,
     pub halign: Option<Align>,
     pub overflow_width: Option<f64>,
+    pub overflow_shift: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default)]

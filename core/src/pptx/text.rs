@@ -400,11 +400,57 @@ fn bullet_label(ch: &str, ppr: &PPr, run: &RunProps, size: f64) -> ListLabel {
         }
     }
     ListLabel {
-        text: map_bullet(ch),
+        text: if symbol_font { map_symbol_bullet(ch, ppr.bu_font.as_deref().unwrap_or("")) } else { map_bullet(ch) },
         props,
         suffix: ListSuffix::Tab,
         tab_pos: None,
     }
+}
+
+fn map_symbol_bullet(text: &str, font: &str) -> String {
+    let wingdings = font.to_lowercase().contains("wingdings");
+    text.chars()
+        .map(|c| {
+            let code = c as u32;
+            let low = if (0xF000..=0xF0FF).contains(&code) { code - 0xF000 } else { code };
+            if wingdings {
+                match low {
+                    0x6C => '●',
+                    0x6D => '❍',
+                    0x6E => '■',
+                    0x6F => '□',
+                    0x70 => '❑',
+                    0x71 => '❑',
+                    0x72 => '❒',
+                    0x73 => '▲',
+                    0x74 => '▼',
+                    0x75 => '◆',
+                    0x76 => '❖',
+                    0x77 => '⬥',
+                    0x78 => '✕',
+                    0xA7 => '▪',
+                    0xA8 => '◻',
+                    0xB7 => '•',
+                    0xD8 => '➢',
+                    0xE0 => '⇨',
+                    0xFC => '✓',
+                    0xFE => '☒',
+                    _ => '•',
+                }
+            } else {
+                match low {
+                    0xB7 => '•',
+                    0xA7 => '♣',
+                    0xA8 => '♦',
+                    0xAE => '→',
+                    0xDE => '⇒',
+                    0x2D => '−',
+                    _ if low < 0x80 => c,
+                    _ => '•',
+                }
+            }
+        })
+        .collect()
 }
 
 pub fn map_bullet(text: &str) -> String {
