@@ -57,13 +57,18 @@ DOCX to PDF reads the document into a flow model and hands it to Typst.
   after with Word's HTML auto spacing rule (larger of the two unless the compat
   flag makes them additive), contextual spacing, line spacing (multiple, exact,
   at least), page breaks, tab stops (explicit, the implicit stop of a hanging
-  indent, and default stops for tabs at the start of a line).
+  indent, and default stops for tabs at the start of a line), paragraph
+  borders and shading with Word's per-side distances (drawn outside the indent
+  as Writer does for Word files), solid, dotted, dashed and double line styles.
 - Numbered and bulleted lists from `numbering.xml`: multi-level labels,
-  restarts, letter and roman formats, bullet glyph mapping for Symbol and
-  Wingdings.
+  restarts, letter and roman formats, bullet glyphs drawn with OpenSymbol like
+  LibreOffice, labels wider than the hanging indent pushing the text to the
+  next tab stop; ODT outline numbering of headings.
 - Runs: font, size, bold, italic, underline, strike, colour, highlight,
-  superscript and subscript, caps and small caps, hidden text, symbols, line
-  breaks, footnotes and endnotes.
+  superscript and subscript, caps and synthesized small caps, letter spacing,
+  character borders, kerning only where the document asks for it (Writer's
+  rule for Word files), hidden text, symbols, line breaks, footnotes and
+  endnotes.
 - Styles: document defaults, paragraph and character style chains, theme
   fonts, the default paragraph style, numbering carried by styles.
 - Tables: grid widths, column and row spans, per-cell borders, margins,
@@ -73,9 +78,16 @@ DOCX to PDF reads the document into a flow model and hands it to Typst.
   a picture, top-and-bottom wrap, behind-text ordering, and the legacy VML
   `w:pict` forms of the same. PNG, JPEG, GIF and SVG media are placed; other
   formats reserve their space.
+- Sections in ODT with `style:columns` are laid out as balanced columns with
+  their separator line; frames keep their minimum height.
+- Spreadsheets: cell values with number, date, fraction and scientific
+  formats, merged cells, column widths and row heights, pagination with
+  scale and fit-to-page, header and footer codes with font switches, and
+  shapes or pictures anchored in the sheet.
 - Fonts: Word families are mapped onto the bundled metric-compatible set in
   `fonts/` (Liberation for Arial, Times New Roman and Courier New, Carlito for
-  Calibri, Caladea for Cambria, OpenSymbol for Symbol and Wingdings bullets). Line heights use the same hhea metrics that
+  Calibri, Caladea for Cambria, OpenSymbol for Symbol and Wingdings bullets).
+  Line heights use the same hhea metrics that
   Word and LibreOffice use, so line pitch and baselines match. The Carlito and
   Caladea files are the versions LibreOffice bundles, kept in the repository
   because newer Google Fonts releases changed their vertical metrics;
@@ -91,7 +103,9 @@ light editing, not for reflowing.
 Not yet handled: tabs in the middle of a line (approximated with the default
 tab width), text wrapping tightly around pictures wider than half the text
 area, tracked changes, comments, charts and SmartArt, embedded fonts in either
-direction, paragraph borders, and floating shapes and hidden text in DOC input.
+direction, WordArt text warps, double border lines drawn as two strokes,
+floating shapes in DOC input, and Writer's chapter numbering of Word heading
+styles.
 
 ## Building
 
@@ -142,7 +156,14 @@ only, red is ours only). The previous run's scores are shown for comparison and
 written to `bench/out/report.json`.
 
 `scripts/pdf-to-png.js <file.pdf> [out-dir] [scale]` rasterises any PDF for a
-quick look.
+quick look and `bare scripts/convert.js <input> <output>` converts one file.
+Debugging aids: `SIMPLE_CONVERTER_DUMP_TYPST=<file>` writes the generated
+Typst source, `SIMPLE_CONVERTER_LOAD_TYPST=<file>` compiles a hand-edited
+source instead, `SIMPLE_CONVERTER_DOC_TRACE=1` prints each DOC paragraph's
+style and list references, and `cargo run --example doc_debug <file.doc>`
+dumps a DOC's tables, lists and styles.
+
+The benchmark mean ink IoU over the 40 corpus cases is 69.9%.
 
 ## Size
 
@@ -152,8 +173,8 @@ and the fonts 7 MB, against 337 MB for `bare-collabora`.
 ## Layout
 
 - `index.js`, `binding.c`: the Bare addon and its JS API.
-- `core/`: the Rust engine. `docx/`, `doc/`, `odt/` and `pptx/` read their
-  formats into `model.rs`; `docx/writer.rs` writes fixed-layout DOCX;
+- `core/`: the Rust engine. `docx/`, `doc/`, `odt/`, `pptx/` and `xlsx/` read
+  their formats into `model.rs`; `docx/writer.rs` writes fixed-layout DOCX;
   `typst_backend/` emits Typst and renders PDF; `pdf/` extracts text and
   backgrounds with PDFium.
 - `cmake/`: Corrosion for the Rust build and the PDFium download.
