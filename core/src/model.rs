@@ -567,9 +567,18 @@ pub enum PathCommand {
 }
 
 #[derive(Debug, Clone)]
+pub enum FillStyle {
+    Gradient { start: Color, end: Color, angle: f64, radial: bool },
+    Hatch { color: Color, distance: f64, angle: f64, background: Option<Color> },
+    Image { data: ImageData, repeat: bool },
+}
+
+#[derive(Debug, Clone)]
 pub struct TextBox {
     pub blocks: Vec<Block>,
     pub fill: Option<Color>,
+    pub fill_style: Option<FillStyle>,
+    pub opacity: f64,
     pub stroke: Option<(f64, Color)>,
     pub inset: (f64, f64, f64, f64),
     pub auto_height: bool,
@@ -584,6 +593,8 @@ impl Default for TextBox {
             min_height: None,
             blocks: Vec::new(),
             fill: None,
+            fill_style: None,
+            opacity: 1.0,
             stroke: None,
             inset: (3.6, 7.2, 3.6, 7.2),
             auto_height: false,

@@ -789,10 +789,52 @@ impl Emitter<'_> {
                 format!("image({}, width: {w}, height: {h}, fit: \"stretch\")", typst_str(&path))
             }
             DrawingContent::TextBox(tb) => {
-                let fill = tb
-                    .fill
-                    .map(|c| format!("rgb({})", typst_str(&c.hex())))
-                    .unwrap_or_else(|| "none".into());
+                let alpha = |c: &Color| format!("rgb({})", typst_str(&format!("{}{:02x}", c.hex(), (tb.opacity.clamp(0.0, 1.0) * 255.0).round() as u8)));
+                let mut backdrop = String::new();
+                let fill = match &tb.fill_style {
+                    Some(FillStyle::Gradient { start, end, angle, radial }) => {
+                        if *radial {
+                            format!("gradient.radial({}, {})", alpha(start), alpha(end))
+                        } else {
+                            format!("gradient.linear({}, {}, angle: {}deg)", alpha(start), alpha(end), trim_num(90.0 - angle))
+                        }
+                    }
+                    Some(FillStyle::Hatch { color, distance, angle, background }) => {
+                        let d = pt(distance.max(0.75));
+                        let a = angle.rem_euclid(180.0);
+                        let line = if (a - 90.0).abs() < 22.5 {
+                            format!("line(start: ({d} / 2, 0pt), end: ({d} / 2, {d}), stroke: 0.4pt + {})", alpha(color))
+                        } else if (a - 45.0).abs() < 22.5 {
+                            format!("line(start: (0pt, {d}), end: ({d}, 0pt), stroke: 0.4pt + {})", alpha(color))
+                        } else if (a - 135.0).abs() < 22.5 {
+                            format!("line(start: (0pt, 0pt), end: ({d}, {d}), stroke: 0.4pt + {})", alpha(color))
+                        } else {
+                            format!("line(start: (0pt, {d} / 2), end: ({d}, {d} / 2), stroke: 0.4pt + {})", alpha(color))
+                        };
+                        let bg = background.map(|c| format!("rect(width: {d}, height: {d}, fill: {}); ", alpha(&c))).unwrap_or_default();
+                        format!("tiling(size: ({d}, {d}), {{ {bg}place(top + left, {line}) }})")
+                    }
+                    Some(FillStyle::Image { data, repeat }) => {
+                        let path = self.register(data);
+                        match (repeat, png_size(&data.data)) {
+                            (true, Some((pw, ph))) => {
+                                let tw = pt(pw as f64 * 0.75);
+                                let th = pt(ph as f64 * 0.75);
+                                format!("tiling(size: ({tw}, {th}), image({}, width: {tw}, height: {th}))", typst_str(&path))
+                            }
+                            _ => {
+                                backdrop = format!(
+                                    "place(top + left, dx: -{}, dy: -{}, image({}, width: {w}, height: {h})); ",
+                                    pt(tb.inset.1),
+                                    pt(tb.inset.0),
+                                    typst_str(&path)
+                                );
+                                "none".to_string()
+                            }
+                        }
+                    }
+                    None => tb.fill.map(|c| alpha(&c)).unwrap_or_else(|| "none".into()),
+                };
                 let stroke = tb
                     .stroke
                     .map(|(width, c)| format!("{} + rgb({})", pt(width), typst_str(&c.hex())))
@@ -812,6 +854,9 @@ impl Emitter<'_> {
                         VAlign::Bottom => "bottom",
                     };
                     let mut body = format!("align({valign} + left)[{}]", self.blocks(&tb.blocks, false));
+                    if !backdrop.is_empty() {
+                        body = format!("{{ {backdrop}{body} }}");
+                    }
                     if let Some(min) = tb.min_height.filter(|_| tb.auto_height) {
                         body = format!(
                             "minhw({}, {}, {body})",
@@ -1119,6 +1164,15 @@ impl Emitter<'_> {
         }
         expr
     }
+}
+
+fn png_size(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() < 24 || &data[..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let width = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+    let height = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+    (width > 0 && height > 0).then_some((width, height))
 }
 
 fn split_tokens(text: &str) -> Vec<String> {

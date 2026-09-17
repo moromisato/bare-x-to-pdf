@@ -17,6 +17,12 @@ pub fn length(value: &str) -> Option<f64> {
     })
 }
 
+fn angle_degrees(value: Option<&str>) -> f64 {
+    let Some(value) = value else { return 0.0 };
+    let number: f64 = value.trim_end_matches("deg").trim().parse().unwrap_or(0.0);
+    if value.ends_with("deg") { number } else { number / 10.0 }
+}
+
 fn percent(value: &str) -> Option<f64> {
     value.trim().strip_suffix('%')?.trim().parse::<f64>().ok().map(|v| v / 100.0)
 }
@@ -33,9 +39,18 @@ struct Style {
     outline_level: Option<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum GraphicFill {
+    Gradient { start: Color, end: Color, angle: f64, radial: bool },
+    Hatch { color: Color, distance: f64, angle: f64, background: Option<Color> },
+    ImageRef { href: String, repeat: bool },
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct GraphicProps {
     pub fill: Option<Color>,
+    pub fill_style: Option<GraphicFill>,
+    pub opacity: f64,
     pub stroke: Option<(f64, Color)>,
     pub padding: (f64, f64, f64, f64),
     pub wrap: Wrap,
@@ -102,6 +117,10 @@ pub struct Styles {
     pub master_pages: HashMap<String, MasterPage>,
     pub default_tab: f64,
     pub outline_style: Option<String>,
+    gradients: HashMap<String, (Color, Color, f64, bool)>,
+    hatches: HashMap<String, (Color, f64, f64)>,
+    fill_images: HashMap<String, String>,
+    opacities: HashMap<String, f64>,
 }
 
 impl Styles {
@@ -167,6 +186,36 @@ impl Styles {
                         "page-layout" => {
                             if let Some(name) = el.attr("name") {
                                 out.page_layouts.insert(name.to_string(), parse_page_layout(el));
+                            }
+                        }
+                        "gradient" => {
+                            if let (Some(name), Some(start), Some(end)) = (
+                                el.attr("name"),
+                                el.attr("start-color").and_then(Color::parse_hex),
+                                el.attr("end-color").and_then(Color::parse_hex),
+                            ) {
+                                let angle = angle_degrees(el.attr("angle"));
+                                let radial = matches!(el.attr("style"), Some("radial") | Some("ellipsoid") | Some("square") | Some("rectangular"));
+                                out.gradients.insert(name.to_string(), (start, end, angle, radial));
+                            }
+                        }
+                        "hatch" => {
+                            if let Some(name) = el.attr("name") {
+                                let color = el.attr("color").and_then(Color::parse_hex).unwrap_or(Color(0, 0, 0));
+                                let distance = el.attr("distance").and_then(length).unwrap_or(2.0);
+                                out.hatches.insert(name.to_string(), (color, distance, angle_degrees(el.attr("rotation"))));
+                            }
+                        }
+                        "fill-image" => {
+                            if let (Some(name), Some(href)) = (el.attr("name"), el.attr("href")) {
+                                out.fill_images.insert(name.to_string(), href.trim_start_matches("./").to_string());
+                            }
+                        }
+                        "opacity" => {
+                            if let Some(name) = el.attr("name") {
+                                let start = el.attr("start").and_then(percent).unwrap_or(0.0);
+                                let end = el.attr("end").and_then(percent).unwrap_or(0.0);
+                                out.opacities.insert(name.to_string(), (1.0 - (start + end) / 2.0).clamp(0.0, 1.0));
                             }
                         }
                         _ => {}
@@ -274,14 +323,55 @@ impl Styles {
             v_pos: "from-top".into(),
             h_rel: "paragraph".into(),
             v_rel: "paragraph".into(),
+            opacity: 1.0,
             ..GraphicProps::default()
         };
         for style_name in self.chain_names("graphic", name) {
             let Some(el) = self.raw_graphic(&style_name) else { continue };
             let Some(g) = el.child("graphic-properties") else { continue };
+            if let Some(opacity) = g.attr("opacity").and_then(percent) {
+                props.opacity = opacity;
+            } else if let Some(opacity) = g.attr("opacity-name").and_then(|n| self.opacities.get(n)) {
+                props.opacity = *opacity;
+            }
             match g.attr("fill") {
-                Some("none") => props.fill = None,
-                Some("solid") => props.fill = g.attr("fill-color").and_then(Color::parse_hex).or(props.fill),
+                Some("none") => {
+                    props.fill = None;
+                    props.fill_style = None;
+                }
+                Some("solid") => {
+                    props.fill = g.attr("fill-color").and_then(Color::parse_hex).or(props.fill);
+                    props.fill_style = None;
+                }
+                Some("gradient") => {
+                    props.fill_style = g
+                        .attr("fill-gradient-name")
+                        .and_then(|n| self.gradients.get(n))
+                        .map(|(start, end, angle, radial)| GraphicFill::Gradient { start: *start, end: *end, angle: *angle, radial: *radial });
+                }
+                Some("hatch") => {
+                    let background = if g.attr("fill-hatch-solid") == Some("true") {
+                        g.attr("fill-color").or(g.attr("background-color")).and_then(Color::parse_hex)
+                    } else {
+                        None
+                    };
+                    props.fill_style = g
+                        .attr("fill-hatch-name")
+                        .and_then(|n| self.hatches.get(n))
+                        .map(|(color, distance, angle)| GraphicFill::Hatch { color: *color, distance: *distance, angle: *angle, background });
+                }
+                Some("bitmap") => {
+                    let repeat = g
+                        .attr("repeat")
+                        .or_else(|| g.child("background-image").and_then(|b| b.attr("repeat")))
+                        .map(|r| r == "repeat")
+                        .unwrap_or(true);
+                    let href = g
+                        .attr("fill-image-name")
+                        .and_then(|n| self.fill_images.get(n).cloned())
+                        .or_else(|| g.child("background-image").and_then(|b| b.attr("href")).map(|h| h.trim_start_matches("./").to_string()));
+                    props.fill_style = href.map(|href| GraphicFill::ImageRef { href, repeat });
+                }
                 _ => {
                     if let Some(c) = g.attr("fill-color").and_then(Color::parse_hex) {
                         props.fill = Some(c);

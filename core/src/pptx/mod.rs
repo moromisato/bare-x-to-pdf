@@ -601,6 +601,7 @@ pub(crate) fn simple_shape(el: &Element, w: f64, h: f64, theme: &Theme, media: &
         min_height: None,
         valign,
         shape: kind,
+        ..TextBox::default()
     }))
 }
 
@@ -866,6 +867,7 @@ fn shape(
         min_height: None,
         valign,
         shape: kind,
+        ..TextBox::default()
     });
     out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, content, placed.rot, placed.flip_h, placed.flip_v, false));
 }

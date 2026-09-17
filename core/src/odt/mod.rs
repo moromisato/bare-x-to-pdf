@@ -484,9 +484,17 @@ impl Reader<'_> {
             }
         } else if let Some(text_box) = el.child("text-box") {
             let blocks = self.blocks(text_box);
+            let fill_style = match &graphic.fill_style {
+                Some(styles::GraphicFill::Gradient { start, end, angle, radial }) => Some(FillStyle::Gradient { start: *start, end: *end, angle: *angle, radial: *radial }),
+                Some(styles::GraphicFill::Hatch { color, distance, angle, background }) => Some(FillStyle::Hatch { color: *color, distance: *distance, angle: *angle, background: *background }),
+                Some(styles::GraphicFill::ImageRef { href, repeat }) => self.media.get(href.as_str()).map(|data| FillStyle::Image { data: data.clone(), repeat: *repeat }),
+                None => None,
+            };
             DrawingContent::TextBox(TextBox {
                 blocks,
                 fill: graphic.fill,
+                fill_style,
+                opacity: graphic.opacity,
                 stroke: graphic.stroke,
                 inset: graphic.padding,
                 auto_height: height.is_none() || text_box.attr("min-height").is_some(),
