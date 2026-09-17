@@ -273,6 +273,52 @@ struct Styles {
     fonts: Vec<Font>,
     xfs: Vec<Xf>,
     num_fmts: HashMap<u32, String>,
+    dxfs: Vec<Dxf>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Dxf {
+    font: RunProps,
+    num_fmt: Option<String>,
+    fill: Option<Color>,
+}
+
+#[derive(Debug, Clone)]
+struct CondRule {
+    range: (u32, u32, u32, u32),
+    priority: i64,
+    dxf: usize,
+    operator: String,
+    values: Vec<f64>,
+}
+
+fn conditional_dxf<'a>(sheet: &Sheet, styles: &'a Styles, row: u32, col: u32, value: Option<&CellValue>) -> Option<&'a Dxf> {
+    let Some(CellValue::Number(v)) = value else { return None };
+    let mut rules: Vec<&CondRule> = sheet
+        .conditional
+        .iter()
+        .filter(|r| row >= r.range.0 && row <= r.range.2 && col >= r.range.1 && col <= r.range.3)
+        .collect();
+    rules.sort_by_key(|r| r.priority);
+    for rule in rules {
+        let a = rule.values.first().copied();
+        let b = rule.values.get(1).copied();
+        let hit = match (rule.operator.as_str(), a, b) {
+            ("lessThan", Some(a), _) => *v < a,
+            ("lessThanOrEqual", Some(a), _) => *v <= a,
+            ("greaterThan", Some(a), _) => *v > a,
+            ("greaterThanOrEqual", Some(a), _) => *v >= a,
+            ("equal", Some(a), _) => (*v - a).abs() < 1e-9,
+            ("notEqual", Some(a), _) => (*v - a).abs() >= 1e-9,
+            ("between", Some(a), Some(b)) => *v >= a.min(b) && *v <= a.max(b),
+            ("notBetween", Some(a), Some(b)) => *v < a.min(b) || *v > a.max(b),
+            _ => false,
+        };
+        if hit {
+            return styles.dxfs.get(rule.dxf);
+        }
+    }
+    None
 }
 
 impl Styles {
@@ -289,6 +335,7 @@ impl Styles {
             fonts: vec![default_font.clone()],
             xfs: vec![Xf::default()],
             num_fmts: HashMap::new(),
+            dxfs: Vec::new(),
         };
         let Some(root) = root else { return styles };
 
@@ -329,6 +376,18 @@ impl Styles {
                     styles.num_fmts.insert(id, code.to_string());
                 }
             }
+        }
+        if let Some(dxfs) = root.child("dxfs") {
+            styles.dxfs = dxfs
+                .children("dxf")
+                .map(|dxf| Dxf {
+                    font: dxf.child("font").map(|f| apply_font(f, theme, RunProps::default())).unwrap_or_default(),
+                    num_fmt: dxf.child("numFmt").and_then(|n| n.attr("formatCode")).map(str::to_owned),
+                    fill: dxf.child("fill").and_then(|f| f.child("patternFill")).and_then(|p| {
+                        p.child("bgColor").and_then(|c| parse_color(c, theme)).or_else(|| p.child("fgColor").and_then(|c| parse_color(c, theme)))
+                    }),
+                })
+                .collect();
         }
         if let Some(xfs) = root.child("cellXfs") {
             styles.xfs = xfs
@@ -383,12 +442,16 @@ impl Styles {
 }
 
 fn parse_font(f: &Element, theme: &Theme) -> RunProps {
-    let mut props = RunProps {
+    let props = RunProps {
         font: Some("Calibri".into()),
         size: Some(11.0),
         color: Some(Color(0, 0, 0)),
         ..RunProps::default()
     };
+    apply_font(f, theme, props)
+}
+
+fn apply_font(f: &Element, theme: &Theme, mut props: RunProps) -> RunProps {
     for child in f.elements() {
         match child.name.as_str() {
             "sz" => props.size = child.attr("val").and_then(|v| v.parse().ok()),
@@ -553,6 +616,7 @@ struct SheetDrawing {
 }
 
 struct Sheet {
+    conditional: Vec<CondRule>,
     drawings: Vec<SheetDrawing>,
     col_widths: Vec<f64>,
     rows: BTreeMap<u32, RowData>,
@@ -846,6 +910,25 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
         last_row,
         first_col,
         last_col,
+        conditional: root
+            .children("conditionalFormatting")
+            .flat_map(|cf| {
+                let ranges: Vec<(u32, u32, u32, u32)> = cf.attr("sqref").unwrap_or("").split_whitespace().filter_map(parse_range).collect();
+                cf.children("cfRule")
+                    .filter(|rule| rule.attr("type") == Some("cellIs"))
+                    .flat_map(|rule| {
+                        let values: Vec<f64> = rule.children("formula").filter_map(|f| f.text().trim().parse::<f64>().ok()).collect();
+                        let priority = rule.attr("priority").and_then(|p| p.parse().ok()).unwrap_or(0);
+                        let dxf = rule.attr("dxfId").and_then(|d| d.parse().ok()).unwrap_or(usize::MAX);
+                        let operator = rule.attr("operator").unwrap_or("").to_string();
+                        ranges
+                            .iter()
+                            .map(|range| CondRule { range: *range, priority, dxf, operator: operator.clone(), values: values.clone() })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect(),
         row_breaks: breaks("rowBreaks"),
         col_breaks: breaks("colBreaks"),
     }
@@ -1119,8 +1202,16 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
             }
             let xf = styles.xf(cell_data.map(|d| d.style).unwrap_or(0));
             let own_xf = styles.xf(data.and_then(|d| d.cells.get(&c)).map(|d| d.style).unwrap_or(0));
-            let font = styles.font(xf.font).clone();
+            let mut font = styles.font(xf.font).clone();
             cell.shading = own_xf.fill;
+            let mut cond_code: Option<String> = None;
+            if let Some(dxf) = conditional_dxf(sheet, styles, r, c, cell_data.map(|d| &d.value)) {
+                font.merge(&dxf.font);
+                cond_code = dxf.num_fmt.clone();
+                if let Some(fill) = dxf.fill {
+                    cell.shading = Some(fill);
+                }
+            }
             cell.borders = own_xf.borders;
             cell.valign = xf.v_align;
             cell.no_wrap = !xf.wrap;
@@ -1156,7 +1247,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
 
             let (runs, default_align) = match cell_data.map(|d| &d.value) {
                 Some(CellValue::Number(v)) => {
-                    let code = styles.format_code(xf.num_fmt).unwrap_or_else(|| "General".into());
+                    let code = cond_code.clone().or_else(|| styles.format_code(xf.num_fmt)).unwrap_or_else(|| "General".into());
                     let formatted = format::format_number(*v, &code);
                     let mut props = font.clone();
                     if let Some(c) = formatted.color {
@@ -1165,7 +1256,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
                     (vec![(formatted.text, props)], Align::Right)
                 }
                 Some(CellValue::Text(parts)) => {
-                    let code = styles.format_code(xf.num_fmt).unwrap_or_default();
+                    let code = cond_code.clone().or_else(|| styles.format_code(xf.num_fmt)).unwrap_or_default();
                     let runs = parts
                         .iter()
                         .map(|(text, overrides)| {
