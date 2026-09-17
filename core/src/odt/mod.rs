@@ -8,7 +8,7 @@ use std::io::{Cursor, Read};
 use styles::{length, ListLevel, Styles};
 
 pub fn read(bytes: &[u8]) -> Result<Document, Error> {
-    let (content, styles_root, media) = if bytes.starts_with(b"PK") {
+    let (content, styles_root, media, settings) = if bytes.starts_with(b"PK") {
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
             .map_err(|e| Error::new(format!("not an odt container: {e}")))?;
         let content = entry(&mut archive, "content.xml")?
@@ -26,11 +26,22 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
                 }
             }
         }
-        (xml::parse(&content)?, styles_xml.as_deref().map(xml::parse).transpose()?, media)
+        let settings_xml = entry(&mut archive, "settings.xml")?;
+        (
+            xml::parse(&content)?,
+            styles_xml.as_deref().map(xml::parse).transpose()?,
+            media,
+            settings_xml.as_deref().map(xml::parse).transpose()?,
+        )
     } else {
         let root = xml::parse(bytes)?;
-        (root.clone(), Some(root), HashMap::new())
+        (root.clone(), Some(root.clone()), HashMap::new(), Some(root))
     };
+    let additive_spacing = settings
+        .as_ref()
+        .and_then(|s| find_config_item(s, "AddParaTableSpacing"))
+        .map(|v| v == "true")
+        .unwrap_or(true);
 
     let styles = Styles::parse(styles_root.as_ref(), &content);
     let body = content
@@ -46,6 +57,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
 
     let mut doc = Document {
         default_tab: styles.default_tab,
+        additive_spacing,
         ..Document::default()
     };
 
@@ -66,6 +78,18 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     }
     doc.sections.push(reader.section(current_master.as_deref(), blocks));
     Ok(doc)
+}
+
+fn find_config_item<'a>(el: &'a Element, name: &str) -> Option<String> {
+    for child in el.elements() {
+        if child.name == "config-item" && child.attr("name") == Some(name) {
+            return Some(child.text());
+        }
+        if let Some(found) = find_config_item(child, name) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn entry<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, name: &str) -> Result<Option<Vec<u8>>, Error> {

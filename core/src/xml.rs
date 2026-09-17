@@ -117,10 +117,13 @@ fn element(start: &quick_xml::events::BytesStart<'_>) -> Result<Element, Error> 
         let attr = attr.map_err(|e| Error::new(format!("xml attribute: {e}")))?;
         let qualified: &str = attr.key.as_ref();
         let key = local(qualified);
-        let value = attr
+        let normalized = attr
             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-            .map_err(|e| Error::new(format!("xml attribute: {e}")))?
-            .into_owned();
+            .map_err(|e| Error::new(format!("xml attribute: {e}")))?;
+        let value = match unescape(&normalized) {
+            Ok(v) => v.into_owned(),
+            Err(_) => normalized.into_owned(),
+        };
         if qualified.contains(':') {
             attrs.push((qualified.to_string(), value.clone()));
         }

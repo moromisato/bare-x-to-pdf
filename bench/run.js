@@ -148,7 +148,7 @@ function previousOf(prev, row) {
 }
 
 function caseDir(file) {
-  const dir = path.join(outDir, file.replace(/\.[^.]+$/, ''))
+  const dir = path.join(outDir, file.replace(/\.([^.]+)$/, '-$1'))
   fs.mkdirSync(dir, { recursive: true })
   return dir
 }

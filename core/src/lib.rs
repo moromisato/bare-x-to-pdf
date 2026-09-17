@@ -1,3 +1,4 @@
+pub mod doc;
 pub mod docx;
 pub mod error;
 pub mod model;
@@ -20,9 +21,19 @@ pub struct Options<'a> {
 }
 
 pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<Vec<u8>, Error> {
+    let from = match from {
+        "doc" | "dot" if input.starts_with(b"PK") => "docx",
+        "docx" | "docm" | "dotx" | "dotm" if input.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) => "doc",
+        "odt" | "ott" if input.starts_with(b"<") || input.starts_with(&[0xEF, 0xBB, 0xBF]) => "fodt",
+        other => other,
+    };
     match (from, to) {
         ("docx" | "docm" | "dotx" | "dotm", "pdf") => {
             let document = docx::read(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
+        ("doc" | "dot", "pdf") => {
+            let document = doc::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
         ("odt" | "ott" | "fodt", "pdf") => {
