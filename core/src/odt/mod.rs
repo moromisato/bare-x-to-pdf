@@ -73,6 +73,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         additive_spacing,
         tabs_relative_to_indent,
         borders_outside_indent,
+        writer_text_offset: true,
         ..Document::default()
     };
 

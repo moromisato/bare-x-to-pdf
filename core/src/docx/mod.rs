@@ -91,6 +91,8 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
 
     let mut doc = Document {
         borders_outside_indent: true,
+        table_at_border_center: true,
+        writer_text_offset: true,
         footnote_separator_width: Some(144.0),
         default_tab: 36.0,
         ..Document::default()
@@ -113,6 +115,16 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
             .and_then(|c| c.child("doNotUseHTMLParagraphAutoSpacing"))
             .map(flag)
             .unwrap_or(false);
+        let compat_mode = settings
+            .child("compat")
+            .and_then(|c| {
+                c.children("compatSetting")
+                    .find(|s| s.attr("name") == Some("compatibilityMode"))
+            })
+            .and_then(|s| s.attr("val"))
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0);
+        doc.table_at_border_center = compat_mode == 0 || compat_mode >= 15;
     }
 
     let mut blocks = Vec::new();

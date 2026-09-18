@@ -7,6 +7,7 @@ use std::fmt::Write;
 const DEFAULT_FONT: &str = "Calibri";
 const DEFAULT_SIZE: f64 = 11.0;
 const DEFAULT_CELL_MARGIN_X: f64 = 5.4;
+const TEXT_SHIFT: f64 = 0.1;
 
 pub struct Emitted {
     pub source: String,
@@ -94,8 +95,8 @@ impl Emitter<'_> {
             pt(page.height),
             pt(page.margin.top),
             pt(page.margin.bottom),
-            pt(page.margin.left),
-            pt(page.margin.right)
+            pt(page.margin.left + self.text_shift()),
+            pt(page.margin.right - self.text_shift())
         );
         if section.columns > 1 {
             let _ = writeln!(self.out, "#set columns(gutter: {})", pt(section.column_gap));
@@ -1161,6 +1162,7 @@ impl Emitter<'_> {
             HPosition::Align(_, HAlign::Center) => ("center", 0.0),
             HPosition::Align(_, HAlign::Right) => ("right", 0.0),
         };
+        let dx = dx - self.text_shift();
         match anchor.vertical {
             VPosition::Offset(VRef::Page, y) => {
                 let _ = writeln!(out, "#place(top + {h_align}, dx: {}, dy: {}, {expr})", pt(dx), pt(y - margin.top));
@@ -1395,10 +1397,34 @@ impl Emitter<'_> {
             rows_arg,
             rendered.join(",\n")
         );
-        if table.indent.abs() > 0.01 {
-            expr = format!("pad(left: {}, {})", pt(table.indent), expr);
+        let indent = table.indent + self.table_border_offset(table);
+        if indent.abs() > 0.01 {
+            expr = format!("pad(left: {}, {})", pt(indent), expr);
         }
         expr
+    }
+
+    fn text_shift(&self) -> f64 {
+        if self.doc.writer_text_offset {
+            TEXT_SHIFT
+        } else {
+            0.0
+        }
+    }
+
+    fn table_border_offset(&self, table: &Table) -> f64 {
+        if !self.doc.table_at_border_center {
+            return 0.0;
+        }
+        let first = table.rows.first().and_then(|r| r.cells.first());
+        let side = match first.map(|c| c.borders.left) {
+            Some(own) if own != BorderSide::Unset => own,
+            _ => table.borders.left,
+        };
+        match side {
+            BorderSide::Line { width, .. } => ((width * 20.0).round() / 2.0).floor() / 20.0,
+            _ => 0.0,
+        }
     }
 }
 

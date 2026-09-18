@@ -43,6 +43,8 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
 
     let mut doc = Document {
         borders_outside_indent: true,
+        table_at_border_center: true,
+        writer_text_offset: true,
         footnote_separator_width: Some(144.0),
         default_tab: 36.0,
         additive_spacing: false,
