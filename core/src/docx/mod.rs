@@ -1,7 +1,6 @@
 mod numbering;
 pub use numbering::format_number;
 mod styles;
-pub mod writer;
 
 use crate::error::Error;
 use crate::model::*;

@@ -20,7 +20,6 @@ sc_convert(
   const char *from,
   const char *to,
   const char *fonts_dir,
-  const char *pdfium_path,
   sc_buffer_t *out,
   sc_buffer_t *error
 );

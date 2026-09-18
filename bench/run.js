@@ -25,8 +25,7 @@ const files = fs
 
 for (const file of files) {
   const ext = path.extname(file).toLowerCase()
-  if (ext === '.pdf') results.push(...runPdf(file))
-  else if (ext.length > 1) results.push(...runToPdf(file, ext.slice(1)))
+  if (ext.length > 1) results.push(...runToPdf(file, ext.slice(1)))
 }
 
 printTable(results, previous)
@@ -60,28 +59,6 @@ function runToPdf(file, from) {
     })
     fs.writeFileSync(path.join(dir, 'ours.pdf'), ours)
     Object.assign(result, score(fs.readFileSync(referencePdf), ours, dir, 'ours'))
-  } catch (error) {
-    result.error = error.message
-  }
-  return [result]
-}
-
-function runPdf(file) {
-  const src = path.join(corpusDir, file)
-  const dir = caseDir(file)
-  const original = fs.readFileSync(src)
-
-  const result = { name: file, task: 'pdf>docx' }
-  const oursDocx = path.join(dir, 'ours.docx')
-  const oursPdf = path.join(dir, 'ours-rendered.pdf')
-  try {
-    let docx
-    result.oursMs = time(() => {
-      docx = converter.convert(original, { from: 'pdf', to: 'docx' })
-    })
-    fs.writeFileSync(oursDocx, docx)
-    engine.convert(oursDocx, oursPdf, 'pdf')
-    Object.assign(result, score(original, fs.readFileSync(oursPdf), dir, 'ours'))
   } catch (error) {
     result.error = error.message
   }

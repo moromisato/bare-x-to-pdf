@@ -9,80 +9,69 @@ const TARGETS = [
     target: 'android-arm',
     platform: 'android',
     arch: 'arm',
-    label: 'Android ARM 32-bit',
-    lib: 'libpdfium.so'
+    label: 'Android ARM 32-bit'
   },
   {
     target: 'android-arm64',
     platform: 'android',
     arch: 'arm64',
-    label: 'Android ARM 64-bit',
-    lib: 'libpdfium.so'
+    label: 'Android ARM 64-bit'
   },
   {
     target: 'android-x64',
     platform: 'android',
     arch: 'x64',
-    label: 'Android x86 64-bit',
-    lib: 'libpdfium.so'
+    label: 'Android x86 64-bit'
   },
   {
     target: 'darwin-arm64',
     platform: 'darwin',
     arch: 'arm64',
-    label: 'macOS ARM 64-bit',
-    lib: 'libpdfium.dylib'
+    label: 'macOS ARM 64-bit'
   },
   {
     target: 'darwin-x64',
     platform: 'darwin',
     arch: 'x64',
-    label: 'macOS x86 64-bit',
-    lib: 'libpdfium.dylib'
+    label: 'macOS x86 64-bit'
   },
   {
     target: 'ios-arm64',
     platform: 'ios',
     arch: 'arm64',
-    label: 'iOS ARM 64-bit',
-    lib: 'libpdfium.dylib'
+    label: 'iOS ARM 64-bit'
   },
   {
     target: 'ios-arm64-simulator',
     platform: 'ios',
     arch: 'arm64',
     simulator: true,
-    label: 'iOS ARM simulator 64-bit',
-    lib: 'libpdfium.dylib'
+    label: 'iOS ARM simulator 64-bit'
   },
   {
     target: 'ios-x64-simulator',
     platform: 'ios',
     arch: 'x64',
     simulator: true,
-    label: 'iOS x86 simulator 64-bit',
-    lib: 'libpdfium.dylib'
+    label: 'iOS x86 simulator 64-bit'
   },
   {
     target: 'linux-arm64',
     platform: 'linux',
     arch: 'arm64',
-    label: 'Linux ARM 64-bit',
-    lib: 'libpdfium.so'
+    label: 'Linux ARM 64-bit'
   },
   {
     target: 'linux-x64',
     platform: 'linux',
     arch: 'x64',
-    label: 'Linux x86 64-bit',
-    lib: 'libpdfium.so'
+    label: 'Linux x86 64-bit'
   },
   {
     target: 'win32-x64',
     platform: 'win32',
     arch: 'x64',
-    label: 'Windows x86 64-bit',
-    lib: 'pdfium.dll'
+    label: 'Windows x86 64-bit'
   }
 ]
 
@@ -110,27 +99,11 @@ for (const t of TARGETS) {
     repository: pkg.repository,
     bugs: pkg.bugs,
     homepage: pkg.homepage,
-    publishConfig: pkg.publishConfig,
-    dependencies: { 'bare-path': pkg.dependencies['bare-path'] }
+    publishConfig: pkg.publishConfig
   }
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
 
-  fs.writeFileSync(
-    path.join(dir, 'index.js'),
-    [
-      "const path = require('bare-path')",
-      '',
-      'const addon = require.addon.resolve()',
-      '',
-      'exports.binding = require.addon()',
-      'exports.pdfiumPath = path.join(',
-      '  path.dirname(addon),',
-      "  path.basename(addon, '.bare'),",
-      `  '${t.lib}'`,
-      ')',
-      ''
-    ].join('\n')
-  )
+  fs.writeFileSync(path.join(dir, 'index.js'), ['exports.binding = require.addon()', ''].join('\n'))
 
   const byPlatform = (imports[t.platform] ||= {})
   if (t.platform === 'ios') {

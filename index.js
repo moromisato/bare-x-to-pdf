@@ -1,11 +1,7 @@
 const path = require('bare-path')
-const { binding, pdfiumPath } = require('./binding')
+const { binding } = require('./binding')
 
 const FONTS_DIR = path.join(__dirname, 'fonts')
-
-function defaultPdfiumPath() {
-  return pdfiumPath
-}
 
 const CONVERSIONS = {
   docx: ['pdf'],
@@ -21,8 +17,7 @@ const CONVERSIONS = {
   xlsx: ['pdf'],
   xlsm: ['pdf'],
   xltx: ['pdf'],
-  xltm: ['pdf'],
-  pdf: ['docx']
+  xltm: ['pdf']
 }
 
 const ZIP_MARKERS = [
@@ -33,7 +28,6 @@ const ZIP_MARKERS = [
 ]
 
 const SIGNATURES = [
-  { format: 'pdf', bytes: [0x25, 0x50, 0x44, 0x46] },
   { format: 'docx', bytes: [0x50, 0x4b, 0x03, 0x04] },
   { format: 'doc', bytes: [0xd0, 0xcf, 0x11, 0xe0] }
 ]
@@ -76,8 +70,7 @@ function convert(input, opts = {}) {
   }
 
   const fontsDir = opts.fontsDir || FONTS_DIR
-  const pdfiumPath = opts.pdfiumPath || defaultPdfiumPath()
-  return Buffer.from(binding.convert(bytes, from, to, fontsDir, pdfiumPath))
+  return Buffer.from(binding.convert(bytes, from, to, fontsDir))
 }
 
 function supports(from, to) {
@@ -105,4 +98,3 @@ exports.detect = detect
 exports.supports = supports
 exports.conversions = conversions
 exports.FONTS_DIR = FONTS_DIR
-exports.defaultPdfiumPath = defaultPdfiumPath
