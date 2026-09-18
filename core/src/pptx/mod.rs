@@ -117,6 +117,19 @@ impl<'a> Package<'a> {
         Ok(map)
     }
 
+    fn chart_titles(&mut self, rels: &HashMap<String, (String, String)>) -> Result<HashMap<String, DrawingContent>, Error> {
+        let mut charts = HashMap::new();
+        for (id, (kind, target)) in rels {
+            if kind != "chart" {
+                continue;
+            }
+            if let Some(root) = self.xml(target)? {
+                charts.insert(id.clone(), chart_content(&root));
+            }
+        }
+        Ok(charts)
+    }
+
     fn media(&mut self, rels: &HashMap<String, (String, String)>) -> Result<HashMap<String, ImageData>, Error> {
         let mut media = HashMap::new();
         for (id, (kind, target)) in rels {
@@ -130,6 +143,132 @@ impl<'a> Package<'a> {
             }
         }
         Ok(media)
+    }
+}
+
+pub(crate) fn parse_chart(root: &Element) -> Option<Chart> {
+    let chart = root.child("chart")?;
+    let plot = chart.child("plotArea")?;
+    let (kind, group) = plot.elements().find_map(|el| {
+        let kind = match el.name.as_str() {
+            "barChart" | "bar3DChart" => {
+                if el.child("barDir").and_then(|d| d.attr("val")) == Some("bar") { ChartKind::Bar } else { ChartKind::Column }
+            }
+            "lineChart" | "line3DChart" | "stockChart" => ChartKind::Line,
+            "pieChart" | "pie3DChart" | "doughnutChart" | "ofPieChart" => ChartKind::Pie,
+            "areaChart" | "area3DChart" => ChartKind::Area,
+            "radarChart" | "scatterChart" | "bubbleChart" => ChartKind::Line,
+            _ => return None,
+        };
+        Some((kind, el))
+    })?;
+    let cache_points = |el: &Element| -> Vec<Option<String>> {
+        let cache = el
+            .child("strRef")
+            .and_then(|r| r.child("strCache"))
+            .or_else(|| el.child("numRef").and_then(|r| r.child("numCache")))
+            .or_else(|| el.child("strLit"))
+            .or_else(|| el.child("numLit"));
+        let Some(cache) = cache else { return Vec::new() };
+        let count = cache.child("ptCount").and_then(|c| c.attr("val")).and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
+        let mut points = vec![None; count];
+        for pt in cache.children("pt") {
+            if let (Some(idx), Some(v)) = (pt.attr("idx").and_then(|i| i.parse::<usize>().ok()), pt.child("v")) {
+                if idx >= points.len() {
+                    points.resize(idx + 1, None);
+                }
+                points[idx] = Some(v.text());
+            }
+        }
+        points
+    };
+    let mut categories: Vec<String> = Vec::new();
+    let mut series = Vec::new();
+    for ser in group.children("ser") {
+        let name = ser.child("tx").map(collect_text).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+        let values: Vec<Option<f64>> = ser
+            .child("val")
+            .or_else(|| ser.child("yVal"))
+            .map(|v| cache_points(v).into_iter().map(|p| p.and_then(|s| s.trim().parse::<f64>().ok())).collect())
+            .unwrap_or_default();
+        if categories.is_empty() {
+            if let Some(cat) = ser.child("cat").or_else(|| ser.child("xVal")) {
+                categories = cache_points(cat).into_iter().map(|p| p.unwrap_or_default()).collect();
+            }
+        }
+        series.push(ChartSeries { name, values });
+    }
+    if series.is_empty() {
+        return None;
+    }
+    let longest = series.iter().map(|s| s.values.len()).max().unwrap_or(0);
+    if categories.len() < longest {
+        for i in categories.len()..longest {
+            categories.push((i + 1).to_string());
+        }
+    }
+    let legend = chart.child("legend").map(|l| match l.child("legendPos").and_then(|p| p.attr("val")) {
+        Some("b") => LegendPos::Bottom,
+        Some("t") => LegendPos::Top,
+        Some("l") => LegendPos::Left,
+        _ => LegendPos::Right,
+    });
+    let gap_width = group.child("gapWidth").and_then(|g| g.attr("val")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(150.0);
+    let markers = group.child("marker").and_then(|m| m.attr("val")).map(|v| v != "0").unwrap_or(true)
+        && !group.children("ser").any(|s| s.child("marker").and_then(|m| m.child("symbol")).and_then(|s| s.attr("val")) == Some("none"));
+    Some(Chart { title: chart_title(root), kind, categories, series, legend, gap_width, markers })
+}
+
+pub(crate) fn chart_title(root: &Element) -> Option<String> {
+    let chart = root.child("chart")?;
+    if let Some(title) = chart.child("title") {
+        let text: String = collect_text(title);
+        if !text.trim().is_empty() {
+            return Some(text.trim().to_string());
+        }
+    }
+    if chart.child("autoTitleDeleted").and_then(|a| a.attr("val")).is_some_and(|v| v == "1" || v == "true") {
+        return None;
+    }
+    let series: Vec<&Element> = chart
+        .child("plotArea")
+        .map(|p| p.elements().flat_map(|kind| kind.children("ser")).collect())
+        .unwrap_or_default();
+    if series.len() == 1 {
+        let name = series[0].child("tx").map(collect_text).unwrap_or_default();
+        if !name.trim().is_empty() {
+            return Some(name.trim().to_string());
+        }
+    }
+    None
+}
+
+fn collect_text(el: &Element) -> String {
+    let mut out = String::new();
+    for node in &el.children {
+        match node {
+            crate::xml::Node::Text(t) => out.push_str(t),
+            crate::xml::Node::Element(child) => {
+                if child.name == "v" || child.name == "t" {
+                    out.push_str(&child.text());
+                } else if child.name == "p" {
+                    if !out.is_empty() {
+                        out.push(' ');
+                    }
+                    out.push_str(&collect_text(child));
+                } else if child.name != "pPr" && child.name != "rPr" && child.name != "f" && child.name != "ptCount" && child.name != "idx" {
+                    out.push_str(&collect_text(child));
+                }
+            }
+        }
+    }
+    out
+}
+
+pub(crate) fn chart_content(root: &Element) -> DrawingContent {
+    match parse_chart(root) {
+        Some(chart) => DrawingContent::Chart(chart),
+        None => DrawingContent::Placeholder(chart_title(root)),
     }
 }
 
@@ -258,6 +397,7 @@ struct SlideCtx<'a> {
     theme: &'a Theme,
     colors: ColorContext<'a>,
     media: &'a HashMap<String, ImageData>,
+    charts: &'a HashMap<String, DrawingContent>,
     default_text: &'a LevelStyles,
     title_style: &'a LevelStyles,
     body_style: &'a LevelStyles,
@@ -315,6 +455,7 @@ fn render_slide(
     let master_media = package.media(&master_rels)?;
     let layout_media = package.media(&layout_rels)?;
     let slide_media = package.media(&slide_rels)?;
+    let slide_charts = package.chart_titles(&slide_rels)?;
 
     let master = master_xml
         .as_ref()
@@ -357,6 +498,7 @@ fn render_slide(
             theme: &theme,
             colors: ColorContext { theme: &theme, clr_map: &slide_clr_map, placeholder: None },
             media: &layout_media,
+            charts: &HashMap::new(),
             default_text,
             title_style,
             body_style,
@@ -374,6 +516,7 @@ fn render_slide(
         theme: &theme,
         colors,
         media: &slide_media,
+        charts: &slide_charts,
         default_text,
         title_style,
         body_style,
@@ -456,10 +599,12 @@ fn parse_master(
         shapes: Vec::new(),
         background: None,
     };
+    let empty_charts = HashMap::new();
     let ctx = SlideCtx {
         theme,
         colors: ColorContext { theme, clr_map: &clr_map, placeholder: None },
         media,
+        charts: &empty_charts,
         default_text,
         title_style: &part.title_style,
         body_style: &part.body_style,
@@ -909,7 +1054,7 @@ fn picture(el: &Element, transform: &Transform, ctx: &SlideCtx, out: &mut Vec<An
         .cloned();
     let content = match image {
         Some(img) => DrawingContent::Image(img),
-        None => DrawingContent::Placeholder,
+        None => DrawingContent::Placeholder(None),
     };
     out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, content, placed.rot, placed.flip_h, placed.flip_v, false));
     if let Some(stroke) = line(el.child("spPr"), el.child("style"), &ctx.colors) {
@@ -945,7 +1090,13 @@ fn graphic_frame(el: &Element, transform: &Transform, ctx: &SlideCtx, out: &mut 
         let table = parse_table(tbl, ctx);
         out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, DrawingContent::Table(table), placed.rot, false, false, false));
     } else if data.attr("uri").is_some_and(|u| u.contains("/chart") || u.contains("/diagram")) {
-        out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, DrawingContent::Placeholder, placed.rot, false, false, false));
+        let content = data
+            .child("chart")
+            .and_then(|c| c.attr("id"))
+            .and_then(|id| ctx.charts.get(id))
+            .cloned()
+            .unwrap_or(DrawingContent::Placeholder(None));
+        out.push(page_anchor(placed.x, placed.y, placed.w, placed.h, content, placed.rot, false, false, false));
     }
 }
 

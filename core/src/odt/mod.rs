@@ -480,7 +480,7 @@ impl Reader<'_> {
                 });
             match data {
                 Some(image) => DrawingContent::Image(image),
-                None => DrawingContent::Placeholder,
+                None => DrawingContent::Placeholder(None),
             }
         } else if let Some(text_box) = el.child("text-box") {
             let blocks = self.blocks(text_box);
@@ -502,7 +502,7 @@ impl Reader<'_> {
                 ..TextBox::default()
             })
         } else if el.child("object").is_some() || el.child("object-ole").is_some() || el.child("plugin").is_some() {
-            DrawingContent::Placeholder
+            DrawingContent::Placeholder(None)
         } else {
             return;
         };

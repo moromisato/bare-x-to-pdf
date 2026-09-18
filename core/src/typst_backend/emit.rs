@@ -802,6 +802,186 @@ impl Emitter<'_> {
         anchor.wrap == Wrap::Square && !anchor.behind && anchor.drawing.width <= text_width * 0.5
     }
 
+    fn chart_expr(&self, chart: &Chart, w: f64, h: f64) -> String {
+        const COLORS: [&str; 6] = ["#4472c4", "#ed7d31", "#a5a5a5", "#ffc000", "#5b9bd5", "#70ad47"];
+        let label = |text: &str, size: f64, bold: bool| {
+            format!(
+                "text(font: \"Carlito\", size: {}, weight: {}, {})",
+                pt(size),
+                if bold { "\"bold\"" } else { "\"regular\"" },
+                typst_str(text)
+            )
+        };
+        let mut items = Vec::new();
+        let title_height = if chart.title.is_some() { 40.0 } else { 8.0 };
+        if let Some(title) = &chart.title {
+            items.push(format!("place(top + center, dy: 9pt, {})", label(title, 18.0, true)));
+        }
+        let legend = chart.legend.filter(|_| chart.series.len() > 1 || chart.kind == ChartKind::Pie);
+        let legend_names: Vec<String> = if chart.kind == ChartKind::Pie {
+            chart.categories.clone()
+        } else {
+            chart.series.iter().enumerate().map(|(i, s)| s.name.clone().unwrap_or_else(|| format!("Series {}", i + 1))).collect()
+        };
+        let legend_text_width = legend_names.iter().map(|n| n.chars().count() as f64 * 4.6 + 12.0).fold(0.0, f64::max).min(w / 3.0);
+        let (legend_side_width, legend_band_height) = match legend {
+            Some(LegendPos::Right) | Some(LegendPos::Left) => (legend_text_width + 4.0, 0.0),
+            Some(LegendPos::Top) | Some(LegendPos::Bottom) => (0.0, 16.0),
+            None => (0.0, 0.0),
+        };
+        let plot_left = if chart.kind == ChartKind::Pie { 8.0 } else { 32.0 } + if legend == Some(LegendPos::Left) { legend_side_width } else { 0.0 };
+        let plot_right = w - 6.0 - if legend == Some(LegendPos::Right) { legend_side_width } else { 0.0 };
+        let plot_top = title_height + if legend == Some(LegendPos::Top) { legend_band_height } else { 0.0 };
+        let plot_bottom = h - if chart.kind == ChartKind::Pie { 8.0 } else { 18.0 } - if legend == Some(LegendPos::Bottom) { legend_band_height } else { 0.0 };
+        let plot_w = (plot_right - plot_left).max(1.0);
+        let plot_h = (plot_bottom - plot_top).max(1.0);
+        let series_count = chart.series.len().max(1);
+        let cats = chart.categories.len().max(1);
+        if chart.kind == ChartKind::Pie {
+            let values: Vec<f64> = chart.series.first().map(|s| s.values.iter().map(|v| v.unwrap_or(0.0).max(0.0)).collect()).unwrap_or_default();
+            let total: f64 = values.iter().sum();
+            let radius = (plot_w.min(plot_h) / 2.0 - 1.0).max(1.0);
+            let cx = plot_left + plot_w / 2.0;
+            let cy = plot_top + plot_h / 2.0;
+            let mut angle = -90.0_f64;
+            for (i, v) in values.iter().enumerate() {
+                if total <= 0.0 || *v <= 0.0 {
+                    continue;
+                }
+                let sweep = 360.0 * v / total;
+                let steps = ((sweep / 4.0).ceil() as usize).max(2);
+                let mut points = vec![format!("({}, {})", pt(cx), pt(cy))];
+                for k in 0..=steps {
+                    let a = (angle + sweep * k as f64 / steps as f64).to_radians();
+                    points.push(format!("({}, {})", pt(cx + radius * a.cos()), pt(cy + radius * a.sin())));
+                }
+                items.push(format!("place(top + left, polygon(fill: rgb({}), stroke: 0.5pt + white, {}))", typst_str(COLORS[i % COLORS.len()]), points.join(", ")));
+                angle += sweep;
+            }
+        } else {
+            let max = chart
+                .series
+                .iter()
+                .flat_map(|s| s.values.iter().flatten())
+                .fold(0.0_f64, |m, v| m.max(*v));
+            let min = chart
+                .series
+                .iter()
+                .flat_map(|s| s.values.iter().flatten())
+                .fold(0.0_f64, |m, v| m.min(*v));
+            let (axis_min, axis_max, step) = nice_axis(min, max);
+            let span = (axis_max - axis_min).max(1e-9);
+            let horizontal = chart.kind == ChartKind::Bar;
+            let value_pos = |v: f64| -> (f64, f64) {
+                let t = ((v - axis_min) / span).clamp(0.0, 1.0);
+                if horizontal { (plot_left + t * plot_w, 0.0) } else { (0.0, plot_bottom - t * plot_h) }
+            };
+            let mut tick = axis_min;
+            while tick <= axis_max + step * 0.01 {
+                let text = crate::xlsx::format::general(tick);
+                if horizontal {
+                    let x = value_pos(tick).0;
+                    items.push(format!("place(top + left, dx: {}, dy: {}, line(angle: 90deg, length: {}, stroke: 0.4pt + rgb(\"#b3b3b3\")))", pt(x), pt(plot_top), pt(plot_h)));
+                    items.push(format!("place(top + left, dx: {}, dy: {}, box(width: 30pt, align(center, {})))", pt(x - 15.0), pt(plot_bottom + 4.0), label(&text, 10.0, false)));
+                } else {
+                    let y = value_pos(tick).1;
+                    items.push(format!("place(top + left, dx: {}, dy: {}, line(length: {}, stroke: 0.4pt + rgb(\"#b3b3b3\")))", pt(plot_left), pt(y), pt(plot_w)));
+                    items.push(format!("place(top + left, dx: 0pt, dy: {}, box(width: {}, align(right, {})))", pt(y - 6.0), pt(plot_left - 5.0), label(&text, 10.0, false)));
+                }
+                tick += step;
+            }
+            let zero = value_pos(0.0_f64.clamp(axis_min, axis_max));
+            if horizontal {
+                items.push(format!("place(top + left, dx: {}, dy: {}, line(angle: 90deg, length: {}, stroke: 0.6pt + rgb(\"#808080\")))", pt(zero.0), pt(plot_top), pt(plot_h)));
+            } else {
+                items.push(format!("place(top + left, dx: {}, dy: {}, line(length: {}, stroke: 0.6pt + rgb(\"#808080\")))", pt(plot_left), pt(zero.1), pt(plot_w)));
+            }
+            let slot = if horizontal { plot_h / cats as f64 } else { plot_w / cats as f64 };
+            for (ci, category) in chart.categories.iter().enumerate() {
+                let start = ci as f64 * slot;
+                if horizontal {
+                    items.push(format!("place(top + left, dx: 0pt, dy: {}, box(width: {}, height: {}, align(right + horizon, {})))", pt(plot_top + start), pt(plot_left - 4.0), pt(slot), label(category, 10.0, false)));
+                } else {
+                    items.push(format!("place(top + left, dx: {}, dy: {}, box(width: {}, align(center, {})))", pt(plot_left + start), pt(plot_bottom + 4.0), pt(slot), label(category, 10.0, false)));
+                }
+            }
+            match chart.kind {
+                ChartKind::Column | ChartKind::Bar => {
+                    let bar = (slot / (series_count as f64 + chart.gap_width.max(0.0) / 100.0)).max(0.5);
+                    let gap = slot - bar * series_count as f64;
+                    for (si, s) in chart.series.iter().enumerate() {
+                        let color = typst_str(COLORS[si % COLORS.len()]);
+                        for (ci, v) in s.values.iter().enumerate() {
+                            let Some(v) = v else { continue };
+                            let start = ci as f64 * slot + gap / 2.0 + si as f64 * bar;
+                            let (a, b) = (value_pos(*v), value_pos(0.0_f64.clamp(axis_min, axis_max)));
+                            if horizontal {
+                                let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+                                items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: {}, height: {}, fill: rgb({color})))", pt(x0), pt(plot_top + start), pt((x1 - x0).max(0.3)), pt(bar)));
+                            } else {
+                                let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+                                items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: {}, height: {}, fill: rgb({color})))", pt(plot_left + start), pt(y0), pt(bar), pt((y1 - y0).max(0.3))));
+                            }
+                        }
+                    }
+                }
+                ChartKind::Line | ChartKind::Area => {
+                    for (si, s) in chart.series.iter().enumerate() {
+                        let color = typst_str(COLORS[si % COLORS.len()]);
+                        let points: Vec<(f64, f64)> = s
+                            .values
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(ci, v)| v.map(|v| (plot_left + (ci as f64 + 0.5) * slot, value_pos(v).1)))
+                            .collect();
+                        if chart.kind == ChartKind::Area && points.len() >= 2 {
+                            let mut poly: Vec<String> = points.iter().map(|(x, y)| format!("({}, {})", pt(*x), pt(*y))).collect();
+                            poly.push(format!("({}, {})", pt(points.last().unwrap().0), pt(zero.1)));
+                            poly.push(format!("({}, {})", pt(points[0].0), pt(zero.1)));
+                            items.push(format!("place(top + left, polygon(fill: rgb({color}).transparentize(30%), {}))", poly.join(", ")));
+                        }
+                        for pair in points.windows(2) {
+                            items.push(format!(
+                                "place(top + left, line(start: ({}, {}), end: ({}, {}), stroke: 1.5pt + rgb({color})))",
+                                pt(pair[0].0), pt(pair[0].1), pt(pair[1].0), pt(pair[1].1)
+                            ));
+                        }
+                        if chart.kind == ChartKind::Line && chart.markers {
+                            for (x, y) in &points {
+                                items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 5pt, height: 5pt, fill: rgb({color})))", pt(x - 2.5), pt(y - 2.5)));
+                            }
+                        }
+                    }
+                }
+                ChartKind::Pie => {}
+            }
+        }
+        match legend {
+            Some(LegendPos::Right) | Some(LegendPos::Left) => {
+                let x = if legend == Some(LegendPos::Left) { 6.0 } else { plot_right + 6.0 };
+                let mut y = plot_top + (plot_h - legend_names.len() as f64 * 12.0).max(0.0) / 2.0;
+                for (i, name) in legend_names.iter().enumerate() {
+                    items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 6pt, height: 6pt, fill: rgb({})))", pt(x), pt(y + 3.0), typst_str(COLORS[i % COLORS.len()])));
+                    items.push(format!("place(top + left, dx: {}, dy: {}, box(width: {}, clip: true, {}))", pt(x + 9.0), pt(y), pt(legend_side_width - 8.0), label(name, 9.0, false)));
+                    y += 12.0;
+                }
+            }
+            Some(LegendPos::Top) | Some(LegendPos::Bottom) => {
+                let widths: Vec<f64> = legend_names.iter().map(|n| n.chars().count() as f64 * 4.6 + 18.0).collect();
+                let total: f64 = widths.iter().sum();
+                let mut x = (w - total) / 2.0;
+                let y = if legend == Some(LegendPos::Top) { title_height } else { h - legend_band_height - 4.0 };
+                for (i, name) in legend_names.iter().enumerate() {
+                    items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 6pt, height: 6pt, fill: rgb({})))", pt(x), pt(y + 3.0), typst_str(COLORS[i % COLORS.len()])));
+                    items.push(format!("place(top + left, dx: {}, dy: {}, {})", pt(x + 9.0), pt(y), label(name, 9.0, false)));
+                    x += widths[i];
+                }
+            }
+            None => {}
+        }
+        format!("block(width: {}, height: {}, fill: white, stroke: 0.5pt + rgb(\"#bfbfbf\"), clip: true, {{ {} }})", pt(w), pt(h), items.join("; "))
+    }
+
     fn register(&self, image: &ImageData) -> String {
         let mut files = self.files.borrow_mut();
         let path = format!("media/img{}.{}", files.len() + 1, image.format.extension());
@@ -954,7 +1134,15 @@ impl Emitter<'_> {
             DrawingContent::Table(table) => {
                 format!("block(width: {w}, {})", self.table_expr(table))
             }
-            DrawingContent::Placeholder => format!("rect(width: {w}, height: {h}, fill: rgb(\"#f2f2f2\"), stroke: 0.5pt + rgb(\"#bfbfbf\"))"),
+            DrawingContent::Chart(chart) => self.chart_expr(chart, drawing.width.max(1.0), drawing.height.max(1.0)),
+            DrawingContent::Placeholder(title) => {
+                let label = title
+                    .as_deref()
+                    .filter(|t| !t.trim().is_empty())
+                    .map(|t| format!("place(top + center, dy: 6pt, text(font: \"Liberation Sans\", size: 10pt, fill: rgb(\"#595959\"), {}))", typst_str(t)))
+                    .unwrap_or_default();
+                format!("block(width: {w}, height: {h}, fill: rgb(\"#f2f2f2\"), stroke: 0.5pt + rgb(\"#bfbfbf\"), {{ {label} }})")
+            }
         };
         if drawing.rotation.abs() > 0.01 {
             expr = format!("rotate({}deg, reflow: false, {expr})", trim_num(drawing.rotation));
@@ -1232,6 +1420,18 @@ fn paragraph_hidden(p: &Paragraph) -> bool {
             Inline::Tab | Inline::LineBreak => true,
             _ => false,
         })
+}
+
+fn nice_axis(min: f64, max: f64) -> (f64, f64, f64) {
+    let lo = min.min(0.0);
+    let hi = if max > lo { max } else { lo + 1.0 };
+    let raw = (hi - lo) / 9.0;
+    let magnitude = 10f64.powf(raw.log10().floor());
+    let normalized = raw / magnitude;
+    let step = magnitude * if normalized <= 1.0 { 1.0 } else if normalized <= 2.0 { 2.0 } else if normalized <= 5.0 { 5.0 } else { 10.0 };
+    let axis_min = (lo / step).floor() * step;
+    let axis_max = (hi / step + 1e-9).floor() * step + step;
+    (axis_min, axis_max, step)
 }
 
 fn split_tokens(text: &str) -> Vec<String> {

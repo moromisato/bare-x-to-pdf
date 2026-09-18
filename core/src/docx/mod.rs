@@ -37,6 +37,10 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         Some(r) => load_media(&mut archive, r, "word")?,
         None => HashMap::new(),
     };
+    let charts = match rels.as_ref() {
+        Some(r) => load_charts(&mut archive, r, "word")?,
+        None => HashMap::new(),
+    };
     let targets: HashMap<String, String> = rels
         .as_ref()
         .map(|r| {
@@ -58,6 +62,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
             styles: &styles,
             theme: &theme,
             media: &media,
+            charts: &charts,
             numbering: &numbering,
             counters: RefCell::new(Counters::default()),
             footnotes: &empty_notes,
@@ -79,6 +84,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         styles: &styles,
         theme: &theme,
         media: &media,
+        charts: &charts,
         numbering: &numbering,
         counters: RefCell::new(Counters::default()),
         footnotes: &notes,
@@ -220,10 +226,12 @@ fn build_section<R: Read + std::io::Seek>(
             Some(rels) => load_media(archive, &rels, "word")?,
             None => HashMap::new(),
         };
+        let part_charts: HashMap<String, DrawingContent> = HashMap::new();
         let reader = Reader {
             styles,
             theme,
             media: &part_media,
+            charts: &part_charts,
             numbering: &Numbering::default(),
             counters: RefCell::new(Counters::default()),
             footnotes: &HashMap::new(),
@@ -261,6 +269,31 @@ fn parse_optional(data: Option<Vec<u8>>) -> Result<Option<Element>, Error> {
     data.as_deref().map(xml::parse).transpose()
 }
 
+fn load_charts<R: Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    rels: &Element,
+    base: &str,
+) -> Result<HashMap<String, DrawingContent>, Error> {
+    let mut charts = HashMap::new();
+    for rel in rels.children("Relationship") {
+        let (Some(id), Some(target), Some(kind)) = (rel.attr("Id"), rel.attr("Target"), rel.attr("Type")) else {
+            continue;
+        };
+        if !kind.ends_with("/chart") || rel.attr("TargetMode") == Some("External") {
+            continue;
+        }
+        let path = if let Some(stripped) = target.strip_prefix('/') {
+            stripped.to_string()
+        } else {
+            format!("{base}/{}", target.trim_start_matches("./"))
+        };
+        if let Some(data) = entry(archive, &path)? {
+            charts.insert(id.to_string(), crate::pptx::chart_content(&xml::parse(&data)?));
+        }
+    }
+    Ok(charts)
+}
+
 fn load_media<R: Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
     rels: &Element,
@@ -292,6 +325,7 @@ struct Reader<'a> {
     styles: &'a Styles,
     theme: &'a ThemeFonts,
     media: &'a HashMap<String, ImageData>,
+    charts: &'a HashMap<String, DrawingContent>,
     numbering: &'a Numbering,
     counters: RefCell<Counters>,
     footnotes: &'a HashMap<String, Vec<Block>>,
@@ -563,8 +597,9 @@ impl Reader<'_> {
             Some(node) if node.name == "wsp" => self.shape(node),
             Some(node) if node.name == "wgp" => find_descendant(node, "pic")
                 .map(|pic| self.picture(pic))
-                .unwrap_or(DrawingContent::Placeholder),
-            _ => DrawingContent::Placeholder,
+                .unwrap_or(DrawingContent::Placeholder(None)),
+            Some(node) if node.name == "chart" => node.attr("id").and_then(|id| self.charts.get(id)).cloned().unwrap_or(DrawingContent::Placeholder(None)),
+            _ => DrawingContent::Placeholder(None),
         };
         Some(Drawing::new(width, height, content))
     }
@@ -576,7 +611,7 @@ impl Reader<'_> {
             .and_then(|id| self.media.get(id))
             .cloned()
             .map(DrawingContent::Image)
-            .unwrap_or(DrawingContent::Placeholder)
+            .unwrap_or(DrawingContent::Placeholder(None))
     }
 
     fn shape(&self, wsp: &Element) -> DrawingContent {
@@ -615,7 +650,7 @@ impl Reader<'_> {
             .map(|c| self.blocks(c))
             .unwrap_or_default();
         if blocks.is_empty() && fill.is_none() && stroke.is_none() {
-            return DrawingContent::Placeholder;
+            return DrawingContent::Placeholder(None);
         }
         DrawingContent::TextBox(TextBox {
             blocks,
@@ -644,7 +679,7 @@ impl Reader<'_> {
                     .and_then(|id| self.media.get(id))
                     .cloned()
                     .map(DrawingContent::Image)
-                    .unwrap_or(DrawingContent::Placeholder)
+                    .unwrap_or(DrawingContent::Placeholder(None))
             } else if let Some(content) = find_descendant(shape, "txbxContent") {
                 let fill = shape
                     .attr("fillcolor")
@@ -668,7 +703,7 @@ impl Reader<'_> {
                     ..TextBox::default()
                 })
             } else {
-                DrawingContent::Placeholder
+                DrawingContent::Placeholder(None)
             };
 
             let drawing = Drawing::new(width, height, content);

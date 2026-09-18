@@ -1,10 +1,11 @@
-mod format;
+pub(crate) mod format;
+mod formula;
 
 use crate::error::Error;
 use crate::model::*;
 use crate::pptx::color::{apply_tint, Theme};
 use crate::pptx::text::emu;
-use crate::pptx::{page_anchor, resolve_path, simple_shape};
+use crate::pptx::{chart_content, page_anchor, resolve_path, simple_shape};
 use crate::xml::{self, Element};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read};
@@ -195,16 +196,19 @@ fn read_drawings<R: Read + std::io::Seek>(
         let root = xml::parse(&data)?;
         let (ddir, dfile) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
         let mut media = HashMap::new();
+        let mut charts: HashMap<String, DrawingContent> = HashMap::new();
         if let Some(drels) = entry(archive, &format!("{ddir}/_rels/{dfile}.rels"))? {
             for r in xml::parse(&drels)?.children("Relationship") {
-                if !r.attr("Type").is_some_and(|t| t.ends_with("/image")) {
-                    continue;
-                }
-                if let (Some(id), Some(t)) = (r.attr("Id"), r.attr("Target")) {
+                let (Some(id), Some(t), Some(kind)) = (r.attr("Id"), r.attr("Target"), r.attr("Type")) else { continue };
+                if kind.ends_with("/image") {
                     if let Some(bytes) = entry(archive, &resolve_path(ddir, t))? {
                         if let Some(format) = ImageFormat::sniff(&bytes) {
                             media.insert(id.to_string(), ImageData { data: bytes, format });
                         }
+                    }
+                } else if kind.ends_with("/chart") {
+                    if let Some(bytes) = entry(archive, &resolve_path(ddir, t))? {
+                        charts.insert(id.to_string(), chart_content(&xml::parse(&bytes)?));
                     }
                 }
             }
@@ -233,7 +237,16 @@ fn read_drawings<R: Read + std::io::Seek>(
             }
             let Some(shape) = anchor.elements().find(|e| matches!(e.name.as_str(), "sp" | "pic" | "cxnSp" | "graphicFrame")) else { continue };
             let content = if shape.name == "graphicFrame" {
-                Some(DrawingContent::Placeholder)
+                Some(
+                    shape
+                        .child("graphic")
+                        .and_then(|g| g.child("graphicData"))
+                        .and_then(|d| d.child("chart"))
+                        .and_then(|c| c.attr("id"))
+                        .and_then(|id| charts.get(id))
+                        .cloned()
+                        .unwrap_or(DrawingContent::Placeholder(None)),
+                )
             } else {
                 simple_shape(shape, width, height, theme, &media)
             };
@@ -293,30 +306,71 @@ struct CondRule {
     range: (u32, u32, u32, u32),
     priority: i64,
     dxf: usize,
+    kind: String,
     operator: String,
-    values: Vec<f64>,
+    formulas: Vec<String>,
+    text: Option<String>,
+}
+
+fn cell_value(sheet: &Sheet, row: u32, col: u32) -> formula::Value {
+    match sheet.rows.get(&row).and_then(|d| d.cells.get(&col)).map(|c| &c.value) {
+        Some(CellValue::Number(n)) => formula::Value::Num(*n),
+        Some(CellValue::Bool(b)) => formula::Value::Bool(*b),
+        Some(CellValue::Text(parts)) => formula::Value::Str(parts.iter().map(|(t, _)| t.as_str()).collect()),
+        _ => formula::Value::Empty,
+    }
 }
 
 fn conditional_dxf<'a>(sheet: &Sheet, styles: &'a Styles, row: u32, col: u32, value: Option<&CellValue>) -> Option<&'a Dxf> {
-    let Some(CellValue::Number(v)) = value else { return None };
+    let current = cell_value(sheet, row, col);
     let mut rules: Vec<&CondRule> = sheet
         .conditional
         .iter()
         .filter(|r| row >= r.range.0 && row <= r.range.2 && col >= r.range.1 && col <= r.range.3)
         .collect();
     rules.sort_by_key(|r| r.priority);
+    let cells = |r: u32, c: u32| cell_value(sheet, r, c);
     for rule in rules {
-        let a = rule.values.first().copied();
-        let b = rule.values.get(1).copied();
-        let hit = match (rule.operator.as_str(), a, b) {
-            ("lessThan", Some(a), _) => *v < a,
-            ("lessThanOrEqual", Some(a), _) => *v <= a,
-            ("greaterThan", Some(a), _) => *v > a,
-            ("greaterThanOrEqual", Some(a), _) => *v >= a,
-            ("equal", Some(a), _) => (*v - a).abs() < 1e-9,
-            ("notEqual", Some(a), _) => (*v - a).abs() >= 1e-9,
-            ("between", Some(a), Some(b)) => *v >= a.min(b) && *v <= a.max(b),
-            ("notBetween", Some(a), Some(b)) => *v < a.min(b) || *v > a.max(b),
+        let ctx = formula::Context { cell: &cells, row_offset: row as i64 - rule.range.0 as i64, col_offset: col as i64 - rule.range.1 as i64 };
+        let operand = |i: usize| rule.formulas.get(i).and_then(|f| formula::evaluate(f, &ctx));
+        let number = |v: &formula::Value| match v {
+            formula::Value::Num(n) => Some(*n),
+            formula::Value::Range(items) => items.first().and_then(|x| if let formula::Value::Num(n) = x { Some(*n) } else { None }),
+            _ => None,
+        };
+        let text = match &current {
+            formula::Value::Str(s) => s.to_lowercase(),
+            formula::Value::Num(n) => format::general(*n),
+            _ => String::new(),
+        };
+        let needle = rule.text.as_deref().map(str::to_lowercase).or_else(|| operand(0).map(|v| match v {
+            formula::Value::Str(s) => s.to_lowercase(),
+            other => other.truthy().to_string(),
+        }));
+        let hit = match rule.kind.as_str() {
+            "cellIs" => {
+                let Some(v) = value.and_then(|v| if let CellValue::Number(n) = v { Some(*n) } else { None }) else { continue };
+                let a = operand(0).as_ref().and_then(number);
+                let b = operand(1).as_ref().and_then(number);
+                match (rule.operator.as_str(), a, b) {
+                    ("lessThan", Some(a), _) => v < a,
+                    ("lessThanOrEqual", Some(a), _) => v <= a,
+                    ("greaterThan", Some(a), _) => v > a,
+                    ("greaterThanOrEqual", Some(a), _) => v >= a,
+                    ("equal", Some(a), _) => (v - a).abs() < 1e-9,
+                    ("notEqual", Some(a), _) => (v - a).abs() >= 1e-9,
+                    ("between", Some(a), Some(b)) => v >= a.min(b) && v <= a.max(b),
+                    ("notBetween", Some(a), Some(b)) => v < a.min(b) || v > a.max(b),
+                    _ => false,
+                }
+            }
+            "expression" => operand(0).is_some_and(|v| v.truthy()),
+            "containsText" => needle.as_deref().is_some_and(|n| !n.is_empty() && text.contains(n)),
+            "notContainsText" => needle.as_deref().is_some_and(|n| !text.contains(n)),
+            "beginsWith" => needle.as_deref().is_some_and(|n| text.starts_with(n)),
+            "endsWith" => needle.as_deref().is_some_and(|n| text.ends_with(n)),
+            "containsBlanks" => matches!(current, formula::Value::Empty),
+            "notContainsBlanks" => !matches!(current, formula::Value::Empty),
             _ => false,
         };
         if hit {
@@ -714,7 +768,7 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
     let default_row_height = format_pr
         .and_then(|f| f.attr("defaultRowHeight"))
         .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(15.0);
+        .unwrap_or(12.8);
     let all_custom = format_pr
         .and_then(|f| f.attr("customHeight"))
         .map(|v| v == "1" || v == "true")
@@ -920,15 +974,25 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
             .flat_map(|cf| {
                 let ranges: Vec<(u32, u32, u32, u32)> = cf.attr("sqref").unwrap_or("").split_whitespace().filter_map(parse_range).collect();
                 cf.children("cfRule")
-                    .filter(|rule| rule.attr("type") == Some("cellIs"))
+                    .filter(|rule| rule.attr("dxfId").is_some())
                     .flat_map(|rule| {
-                        let values: Vec<f64> = rule.children("formula").filter_map(|f| f.text().trim().parse::<f64>().ok()).collect();
+                        let formulas: Vec<String> = rule.children("formula").map(|f| f.text().trim().to_string()).collect();
                         let priority = rule.attr("priority").and_then(|p| p.parse().ok()).unwrap_or(0);
                         let dxf = rule.attr("dxfId").and_then(|d| d.parse().ok()).unwrap_or(usize::MAX);
                         let operator = rule.attr("operator").unwrap_or("").to_string();
+                        let kind = rule.attr("type").unwrap_or("").to_string();
+                        let text = rule.attr("text").map(str::to_owned);
                         ranges
                             .iter()
-                            .map(|range| CondRule { range: *range, priority, dxf, operator: operator.clone(), values: values.clone() })
+                            .map(|range| CondRule {
+                                range: *range,
+                                priority,
+                                dxf,
+                                kind: kind.clone(),
+                                operator: operator.clone(),
+                                formulas: formulas.clone(),
+                                text: text.clone(),
+                            })
                             .collect::<Vec<_>>()
                     })
                     .collect::<Vec<_>>()
