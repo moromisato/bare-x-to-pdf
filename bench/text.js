@@ -18,10 +18,10 @@ const results = []
 for (const file of files) {
   const ext = path.extname(file).slice(1).toLowerCase()
   const dir = path.join(outDir, file.replace(/\.([^.]+)$/, '-$1'))
-  const row = { name: file, task: ext === 'pdf' ? 'pdf>docx' : `${ext}>pdf` }
+  const row = { name: file, task: `${ext}>pdf` }
   try {
-    const source = ext === 'pdf' ? extract(fs.readFileSync(path.join(corpusDir, file))) : { text: sourceText(fs.readFileSync(path.join(corpusDir, file)), ext) }
-    const oursPath = path.join(dir, ext === 'pdf' ? 'ours-rendered.pdf' : 'ours.pdf')
+    const source = { text: sourceText(fs.readFileSync(path.join(corpusDir, file)), ext) }
+    const oursPath = path.join(dir, 'ours.pdf')
     const referencePath = path.join(dir, 'reference.pdf')
     if (!fs.existsSync(oursPath)) throw new Error('run bench/run.js first')
     const ours = extract(fs.readFileSync(oursPath))

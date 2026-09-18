@@ -8,7 +8,7 @@ const fixture = (name) => fs.readFileSync(path.join(__dirname, 'test', 'fixtures
 
 test('detects the input format from magic bytes', (t) => {
   t.is(converter.detect(fixture('minimal-table-unicode.docx')), 'docx')
-  t.is(converter.detect(Buffer.from('%PDF-1.4\n')), 'pdf')
+  t.is(converter.detect(Buffer.from('%PDF-1.4\n')), null)
   t.is(converter.detect(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])), 'doc')
   t.is(converter.detect(Buffer.from('plain text')), null)
 })
@@ -33,8 +33,7 @@ test('lists supported conversions', (t) => {
       'xlsx>pdf',
       'xlsm>pdf',
       'xltx>pdf',
-      'xltm>pdf',
-      'pdf>docx'
+      'xltm>pdf'
     ]
   )
 })
@@ -51,20 +50,6 @@ test('converts a minimal docx with a table and unicode text to pdf', (t) => {
 test('converts a styled docx to a letter sized pdf', (t) => {
   const pdf = converter.convert(fixture('sdk-sample.docx'), { from: 'docx', to: 'pdf' })
   const doc = pdfium.open(pdf)
-  const size = doc.pageSize(0)
-  t.ok(Math.abs(size.width - 612) < 1)
-  t.ok(Math.abs(size.height - 792) < 1)
-  doc.close()
-})
-
-test('converts a pdf to a fixed-layout docx that converts back to pdf', (t) => {
-  const pdf = converter.convert(fixture('sdk-sample.docx'), { to: 'pdf' })
-  const docx = converter.convert(pdf, { to: 'docx' })
-  t.is(docx.subarray(0, 2).toString('latin1'), 'PK')
-  t.is(converter.detect(docx), 'docx')
-  const again = converter.convert(docx, { to: 'pdf' })
-  const doc = pdfium.open(again)
-  t.is(doc.pageCount(), 1)
   const size = doc.pageSize(0)
   t.ok(Math.abs(size.width - 612) < 1)
   t.ok(Math.abs(size.height - 792) < 1)

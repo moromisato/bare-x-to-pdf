@@ -1,11 +1,23 @@
 export type Format =
-  'docx' | 'docm' | 'dotx' | 'dotm' | 'doc' | 'dot' | 'odt' | 'ott' | 'fodt' | 'pptx' | 'pdf'
+  | 'docx'
+  | 'docm'
+  | 'dotx'
+  | 'dotm'
+  | 'doc'
+  | 'dot'
+  | 'odt'
+  | 'ott'
+  | 'fodt'
+  | 'pptx'
+  | 'xlsx'
+  | 'xlsm'
+  | 'xltx'
+  | 'xltm'
 
 export interface ConvertOptions {
   to: Format | string
   from?: Format | string
   fontsDir?: string
-  pdfiumPath?: string
 }
 
 export function convert(input: Uint8Array | ArrayBuffer, opts: ConvertOptions): Buffer
@@ -17,5 +29,3 @@ export function supports(from: string, to: string): boolean
 export function conversions(): Array<{ from: string; to: string }>
 
 export const FONTS_DIR: string
-
-export function defaultPdfiumPath(): string

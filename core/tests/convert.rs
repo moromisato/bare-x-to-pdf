@@ -19,13 +19,8 @@ fn out_dir() -> PathBuf {
 fn options() -> simple_converter_core::Options<'static> {
     use std::sync::OnceLock;
     static FONTS: OnceLock<PathBuf> = OnceLock::new();
-    static PDFIUM: OnceLock<PathBuf> = OnceLock::new();
     simple_converter_core::Options {
         fonts_dir: FONTS.get_or_init(|| root().join("fonts")),
-        pdfium_path: PDFIUM.get_or_init(|| {
-            root().join("prebuilds/darwin-arm64/bare-x-to-pdf/libpdfium.dylib")
-        }),
-        background_scale: 2.0,
     }
 }
 
@@ -63,17 +58,6 @@ fn rejects_unknown_pair() {
 fn rejects_garbage_docx() {
     let err = simple_converter_core::convert(b"PK\x03\x04garbage", "docx", "pdf", &options()).unwrap_err();
     assert!(!err.message().is_empty());
-}
-
-#[test]
-fn pdf_to_docx_round_trip() {
-    let pdf = convert_docx("sdk-sample.docx");
-    let docx = simple_converter_core::convert(&pdf, "pdf", "docx", &options())
-        .unwrap_or_else(|e| panic!("pdf to docx: {e}"));
-    assert!(docx.starts_with(b"PK"));
-    std::fs::write(out_dir().join("sdk-sample-roundtrip.docx"), &docx).unwrap();
-    let again = simple_converter_core::convert(&docx, "docx", "pdf", &options());
-    assert!(again.is_ok(), "fixed-layout docx should be readable: {:?}", again.err());
 }
 
 #[test]

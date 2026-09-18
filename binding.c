@@ -35,14 +35,14 @@ static js_value_t *
 simple_converter_convert(js_env_t *env, js_callback_info_t *info) {
   int err;
 
-  size_t argc = 5;
-  js_value_t *argv[5];
+  size_t argc = 4;
+  js_value_t *argv[4];
 
   err = js_get_callback_info(env, info, &argc, argv, NULL, NULL);
   assert(err == 0);
 
-  if (argc < 5) {
-    err = js_throw_error(env, NULL, "convert expects (bytes, from, to, fontsDir, pdfiumPath)");
+  if (argc < 4) {
+    err = js_throw_error(env, NULL, "convert expects (bytes, from, to, fontsDir)");
     assert(err == 0);
     return NULL;
   }
@@ -59,19 +59,16 @@ simple_converter_convert(js_env_t *env, js_callback_info_t *info) {
   char *from = NULL;
   char *to = NULL;
   char *fonts_dir = NULL;
-  char *pdfium_path = NULL;
 
   bool ok = simple_converter__string(env, argv[1], &from) &&
             simple_converter__string(env, argv[2], &to) &&
-            simple_converter__string(env, argv[3], &fonts_dir) &&
-            simple_converter__string(env, argv[4], &pdfium_path);
+            simple_converter__string(env, argv[3], &fonts_dir);
 
   if (!ok) {
     free(from);
     free(to);
     free(fonts_dir);
-    free(pdfium_path);
-    err = js_throw_error(env, NULL, "from, to, fontsDir and pdfiumPath must be strings");
+    err = js_throw_error(env, NULL, "from, to and fontsDir must be strings");
     assert(err == 0);
     return NULL;
   }
@@ -79,12 +76,11 @@ simple_converter_convert(js_env_t *env, js_callback_info_t *info) {
   sc_buffer_t out = {NULL, 0};
   sc_buffer_t error = {NULL, 0};
 
-  int status = sc_convert(input, input_len, from, to, fonts_dir, pdfium_path, &out, &error);
+  int status = sc_convert(input, input_len, from, to, fonts_dir, &out, &error);
 
   free(from);
   free(to);
   free(fonts_dir);
-  free(pdfium_path);
 
   if (status != 0) {
     char *message = malloc(error.len + 1);

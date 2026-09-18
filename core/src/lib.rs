@@ -3,7 +3,6 @@ pub mod docx;
 pub mod error;
 pub mod model;
 pub mod odt;
-pub mod pdf;
 pub mod pptx;
 pub mod typst_backend;
 pub mod xlsx;
@@ -17,8 +16,6 @@ use std::path::Path;
 
 pub struct Options<'a> {
     pub fonts_dir: &'a Path,
-    pub pdfium_path: &'a Path,
-    pub background_scale: f32,
 }
 
 pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<Vec<u8>, Error> {
@@ -48,10 +45,6 @@ pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<
         ("pptx", "pdf") => {
             let document = pptx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
-        }
-        ("pdf", "docx") => {
-            let document = pdf::read(input, options.pdfium_path, options.background_scale)?;
-            docx::writer::write_fixed(&document)
         }
         _ => Err(Error::new(format!("conversion from {from} to {to} is not supported"))),
     }
@@ -96,7 +89,6 @@ pub unsafe extern "C" fn sc_convert(
     from: *const c_char,
     to: *const c_char,
     fonts_dir: *const c_char,
-    pdfium_path: *const c_char,
     out: *mut Buffer,
     error: *mut Buffer,
 ) -> i32 {
@@ -115,11 +107,8 @@ pub unsafe extern "C" fn sc_convert(
         let from = c_string(from, "from")?;
         let to = c_string(to, "to")?;
         let fonts_dir = c_string(fonts_dir, "fontsDir")?;
-        let pdfium_path = c_string(pdfium_path, "pdfiumPath")?;
         let options = Options {
             fonts_dir: Path::new(&fonts_dir),
-            pdfium_path: Path::new(&pdfium_path),
-            background_scale: 2.0,
         };
         convert(input, &from, &to, &options)
     }));

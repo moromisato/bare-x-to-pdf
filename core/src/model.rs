@@ -465,46 +465,6 @@ pub struct Cell {
     pub overflow_shift: Option<f64>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct FixedDocument {
-    pub pages: Vec<FixedPage>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FixedPage {
-    pub width: f64,
-    pub height: f64,
-    pub background: Option<RasterImage>,
-    pub lines: Vec<TextLine>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RasterImage {
-    pub png: Vec<u8>,
-    pub width_px: u32,
-    pub height_px: u32,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TextLine {
-    pub x: f64,
-    pub top: f64,
-    pub width: f64,
-    pub height: f64,
-    pub ascent: f64,
-    pub runs: Vec<TextRun>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TextRun {
-    pub text: String,
-    pub font: String,
-    pub size: f64,
-    pub bold: bool,
-    pub italic: bool,
-    pub color: Color,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageFormat {
     Png,

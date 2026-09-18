@@ -2,8 +2,7 @@
 
 Convert office documents to PDF for [Bare](https://github.com/holepunchto/bare).
 A native addon with a Rust engine that lays pages out with
-[Typst](https://typst.app) and reads PDFs with
-[PDFium](https://pdfium.googlesource.com/pdfium/).
+[Typst](https://typst.app).
 
 `x` is every format it reads into a PDF today:
 
@@ -14,8 +13,6 @@ A native addon with a Rust engine that lays pages out with
 | OpenDocument Text | `.odt`, `.ott`, `.fodt`            |
 | PowerPoint        | `.pptx`                            |
 | Excel             | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
-
-PDF to `.docx` (fixed-layout) also exists, in the other direction.
 
 ## Install
 
@@ -41,7 +38,6 @@ npm install --os=ios --cpu=arm64
 const converter = require('bare-x-to-pdf')
 
 const pdf = converter.convert(docxBytes, { to: 'pdf' })
-const docx = converter.convert(pdfBytes, { to: 'docx' })
 ```
 
 Input is a `Uint8Array` or `ArrayBuffer` and the result is a `Buffer`. Calls are
@@ -53,14 +49,13 @@ synchronous and CPU bound; run them in a `Bare.Thread` when latency matters.
 
 Convert `input` and return a `Buffer`.
 
-- `options.to` — target format, e.g. `'pdf'` or `'docx'`. Required.
+- `options.to` — target format, `'pdf'`. Required.
 - `options.from` — source format; sniffed from the bytes when omitted.
 - `options.fontsDir` — a directory of fonts to use instead of the bundled set.
-- `options.pdfiumPath` — path to the PDFium shared library.
 
 ### `detect(input)`
 
-Return the detected format (`'docx'`, `'pdf'`, `'doc'`, …) or `null`.
+Return the detected format (`'docx'`, `'doc'`, `'odt'`, …) or `null`.
 
 ### `supports(from, to)`
 
@@ -74,11 +69,7 @@ Return every supported pair as `{ from, to }`.
 
 Path to the bundled fonts directory.
 
-### `defaultPdfiumPath()`
-
-Path to the PDFium library shipped in the platform package beside the addon.
-
 ## License
 
-Apache-2.0. PDFium is BSD; Typst and its dependencies are Apache-2.0 or MIT; the
+Apache-2.0. Typst and its dependencies are Apache-2.0 or MIT; the
 bundled fonts are under the SIL Open Font License (see `fonts/`).
