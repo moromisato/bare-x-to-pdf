@@ -1,6 +1,6 @@
 {
   "name": "bare-x-to-pdf",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Convert Word, PowerPoint, Excel, OpenDocument and PDF files for Bare: a Rust engine on Typst and PDFium",
   "exports": {
     "./package": "./package.json",
@@ -21,8 +21,7 @@
     "core/Cargo.lock",
     "core/src",
     "core/include",
-    "fonts",
-    "prebuilds"
+    "fonts"
   ],
   "addon": true,
   "scripts": {
@@ -31,7 +30,8 @@
     "test": "brittle-bare test.js",
     "bench": "bare bench/run.js",
     "bench:text": "bare bench/text.js",
-    "prebuild": "bare-make generate && bare-make build && bare-make install --prefix prebuilds"
+    "prebuild": "bare-make generate && bare-make build && bare-make install --prefix npm/$(bare -p 'Bare.platform + \"-\" + Bare.arch')/prebuilds && bare scripts/link-host.js",
+    "packages": "bare scripts/platform-packages.js && prettier --write npm"
   },
   "license": "Apache-2.0",
   "repository": {
@@ -72,5 +72,47 @@
     "lunte": "^1.6.0",
     "prettier": "^3.4.2",
     "prettier-config-holepunch": "^2.0.0"
+  },
+  "imports": {
+    "#binding": {
+      "android": {
+        "arm": "bare-x-to-pdf-android-arm",
+        "arm64": "bare-x-to-pdf-android-arm64",
+        "x64": "bare-x-to-pdf-android-x64"
+      },
+      "darwin": {
+        "arm64": "bare-x-to-pdf-darwin-arm64",
+        "x64": "bare-x-to-pdf-darwin-x64"
+      },
+      "ios": {
+        "arm64": {
+          "default": "bare-x-to-pdf-ios-arm64",
+          "simulator": "bare-x-to-pdf-ios-arm64-simulator"
+        },
+        "x64": {
+          "simulator": "bare-x-to-pdf-ios-x64-simulator"
+        }
+      },
+      "linux": {
+        "arm64": "bare-x-to-pdf-linux-arm64",
+        "x64": "bare-x-to-pdf-linux-x64"
+      },
+      "win32": {
+        "x64": "bare-x-to-pdf-win32-x64"
+      }
+    }
+  },
+  "optionalDependencies": {
+    "bare-x-to-pdf-android-arm": "0.2.0",
+    "bare-x-to-pdf-android-arm64": "0.2.0",
+    "bare-x-to-pdf-android-x64": "0.2.0",
+    "bare-x-to-pdf-darwin-arm64": "0.2.0",
+    "bare-x-to-pdf-darwin-x64": "0.2.0",
+    "bare-x-to-pdf-ios-arm64": "0.2.0",
+    "bare-x-to-pdf-ios-arm64-simulator": "0.2.0",
+    "bare-x-to-pdf-ios-x64-simulator": "0.2.0",
+    "bare-x-to-pdf-linux-arm64": "0.2.0",
+    "bare-x-to-pdf-linux-x64": "0.2.0",
+    "bare-x-to-pdf-win32-x64": "0.2.0"
   }
 }

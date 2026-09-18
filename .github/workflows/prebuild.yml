@@ -52,14 +52,14 @@ jobs:
           - os: macos-14
             platform: ios
             arch: arm64
-            tags: "-simulator"
-            flags: "--simulator"
+            tags: '-simulator'
+            flags: '--simulator'
             triple: aarch64-apple-ios-sim
           - os: macos-14
             platform: ios
             arch: x64
-            tags: "-simulator"
-            flags: "--simulator"
+            tags: '-simulator'
+            flags: '--simulator'
             triple: x86_64-apple-ios
     runs-on: ${{ matrix.os }}
     name: Build / ${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.tags }}
@@ -75,7 +75,13 @@ jobs:
           arch: ${{ matrix.arch }}
           flags: ${{ matrix.flags }}
           tags: ${{ matrix.tags }}
-          upload: true
+          prefix: install/${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.tags }}/prebuilds
+      - uses: holepunchto/actions/upload-prebuilds@v1
+        with:
+          platform: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
+          tags: ${{ matrix.tags }}
+          prefix: install
 
   merge:
     runs-on: ubuntu-latest

@@ -1,0 +1,36 @@
+{
+  "name": "bare-x-to-pdf-darwin-x64",
+  "version": "0.2.0",
+  "description": "The macOS x86 64-bit prebuild of bare-x-to-pdf",
+  "exports": {
+    "./package": "./package.json",
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "prebuilds"
+  ],
+  "addon": true,
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moromisato/bare-x-to-pdf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/moromisato/bare-x-to-pdf/issues"
+  },
+  "homepage": "https://github.com/moromisato/bare-x-to-pdf#readme",
+  "publishConfig": {
+    "access": "public",
+    "tag": "beta"
+  },
+  "dependencies": {
+    "bare-path": "^3.0.0"
+  }
+}

@@ -8,7 +8,9 @@ project(simple_converter C)
 include(cmake/rust.cmake)
 include(cmake/pdfium.cmake)
 
-add_bare_module(simple_converter INSTALL TARGET pdfium)
+bare_target(target)
+
+add_bare_module(simple_converter NAME bare-x-to-pdf-${target} INSTALL TARGET pdfium)
 
 target_sources(
   ${simple_converter}
