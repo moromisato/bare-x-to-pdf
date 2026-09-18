@@ -29,3 +29,11 @@ target_link_libraries(
   PRIVATE
     simple_converter_core
 )
+
+if(CMAKE_STRIP AND NOT WIN32)
+  add_custom_command(
+    TARGET ${simple_converter}_module
+    POST_BUILD
+    COMMAND ${CMAKE_STRIP} $<IF:$<PLATFORM_ID:Darwin,iOS>,-x,--strip-unneeded> $<TARGET_FILE:${simple_converter}_module>
+  )
+endif()

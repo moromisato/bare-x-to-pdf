@@ -36,6 +36,8 @@ pub struct Document {
     pub fixed_line_metrics: bool,
     pub borders_outside_indent: bool,
     pub tabs_relative_to_indent: bool,
+    pub table_at_border_center: bool,
+    pub writer_text_offset: bool,
     pub footnote_separator_width: Option<f64>,
     pub cell_metrics: bool,
 }
