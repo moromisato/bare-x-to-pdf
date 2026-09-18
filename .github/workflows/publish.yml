@@ -31,11 +31,31 @@ jobs:
         run: |
           tag="${{ inputs.tag || 'beta' }}"
           version="$(node -p "require('./package.json').version")"
+          publish() {
+            local dir="$1" name attempt=1
+            name="$(node -p "require('./$dir/package.json').name")"
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on the registry"
+            else
+              until (cd "$dir" && npm publish --ignore-scripts --tag "$tag"); do
+                if [ "$attempt" -ge 5 ]; then
+                  echo "::error::$name@$version did not publish after $attempt attempts"
+                  return 1
+                fi
+                attempt=$((attempt + 1))
+                sleep 120
+              done
+            fi
+            npm dist-tag add "$name@$version" latest || true
+          }
+          failed=""
           for dir in npm/*/; do
-            (cd "$dir" && npm publish --ignore-scripts --tag "$tag")
-            npm dist-tag add "$(node -p "require('./$dir/package.json').name")@$version" latest
+            publish "$dir" || failed="$failed $dir"
           done
-          npm publish --ignore-scripts --tag "$tag"
-          npm dist-tag add "bare-x-to-pdf@$version" latest
+          publish . || failed="$failed ."
+          if [ -n "$failed" ]; then
+            echo "::error::failed to publish:$failed"
+            exit 1
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
