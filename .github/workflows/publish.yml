@@ -26,6 +26,8 @@ jobs:
           node-auth-token: ${{ secrets.NPM_TOKEN }}
       - uses: holepunchto/actions/download-prebuilds@v1
       - name: Publish to npm
-        run: npm publish --tag ${{ inputs.tag || 'beta' }}
+        run: |
+          npm publish --tag ${{ inputs.tag || 'beta' }}
+          npm dist-tag add "bare-x-to-pdf@$(node -p "require('./package.json').version")" latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
