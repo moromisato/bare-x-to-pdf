@@ -4,3 +4,4 @@ prebuilds
 core/target
 bench/out
 .DS_Store
+npm/*/prebuilds

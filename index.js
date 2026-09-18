@@ -1,20 +1,10 @@
 const path = require('bare-path')
-const binding = require('./binding')
+const { binding, pdfiumPath } = require('./binding')
 
 const FONTS_DIR = path.join(__dirname, 'fonts')
 
-const PDFIUM_LIBRARY = {
-  darwin: 'libpdfium.dylib',
-  ios: 'libpdfium.dylib',
-  linux: 'libpdfium.so',
-  android: 'libpdfium.so',
-  win32: 'pdfium.dll'
-}
-
 function defaultPdfiumPath() {
-  const addon = require.addon.resolve('.')
-  const name = PDFIUM_LIBRARY[Bare.platform] || 'libpdfium.so'
-  return path.join(path.dirname(addon), path.basename(addon, '.bare'), name)
+  return pdfiumPath
 }
 
 const CONVERSIONS = {

@@ -25,9 +25,17 @@ jobs:
           registry-url: https://registry.npmjs.org
           node-auth-token: ${{ secrets.NPM_TOKEN }}
       - uses: holepunchto/actions/download-prebuilds@v1
+        with:
+          prefix: npm
       - name: Publish to npm
         run: |
-          npm publish --tag ${{ inputs.tag || 'beta' }}
-          npm dist-tag add "bare-x-to-pdf@$(node -p "require('./package.json').version")" latest
+          tag="${{ inputs.tag || 'beta' }}"
+          version="$(node -p "require('./package.json').version")"
+          for dir in npm/*/; do
+            (cd "$dir" && npm publish --ignore-scripts --tag "$tag")
+            npm dist-tag add "$(node -p "require('./$dir/package.json').name")@$version" latest
+          done
+          npm publish --ignore-scripts --tag "$tag"
+          npm dist-tag add "bare-x-to-pdf@$version" latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

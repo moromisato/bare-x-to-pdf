@@ -23,8 +23,17 @@ PDF to `.docx` (fixed-layout) also exists, in the other direction.
 npm install bare-x-to-pdf@beta
 ```
 
-Prebuilt binaries ship for darwin, linux, win32, android and ios; other hosts
-build from source with the Bare toolchain, CMake 4 and Rust.
+The native prebuild is an optional dependency per platform (`bare-x-to-pdf-<platform>-<arch>`),
+so an install downloads only the package for its own platform, about 20 MB, plus the
+fonts and sources in the main package. darwin, linux, win32, android and ios are covered;
+other hosts build from source with the Bare toolchain, CMake 4 and Rust.
+
+To bundle for a different platform, ask npm for that prebuild as well:
+
+```sh
+npm install --os=android --cpu=arm64
+npm install --os=ios --cpu=arm64
+```
 
 ## Usage
 
@@ -67,7 +76,7 @@ Path to the bundled fonts directory.
 
 ### `defaultPdfiumPath()`
 
-Path to the PDFium library shipped beside the addon.
+Path to the PDFium library shipped in the platform package beside the addon.
 
 ## License
 
