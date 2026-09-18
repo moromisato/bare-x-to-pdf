@@ -29,6 +29,17 @@ TIMING_FILES = [
     "mixednumberings.odt",
     "sdk-sample.doc",
 ]
+TEXT_NOTES = {
+    "lo-footnote.docx": "The footnote number sticks to the word before it in both PDFs, so 'Foo' comes out as 'Foo1'.",
+    "lo-footer-body-distance.docx": "The two pages use the first-page and even-page headers and footers, so the four odd-page words never appear. The rest come out in page order (header, body, footer), which differs from the order in the file.",
+    "lo-formats.xlsx": "The sheet stores raw values (0.401, 12345) but prints them formatted (40.10%, $12,345.00), which the word check cannot match. Ours prints a few more values the way the file spells them.",
+    "lo-section_break_numbering.docx": "The word 'header' sits in a header no section uses, so neither engine prints it.",
+    "mixednumberings.odt": "List labels glue to the text that follows (3.2.1xxxx) in both PDFs, and the words joined by non-breaking hyphens come back shortened from ours.",
+    "lo-mixednumberings.docx": "List labels glue to the text that follows (3.2.1xxxx) in both PDFs.",
+    "lo-2col-header.docx": "All three words are there. The file lists body, footer, header; the page reads header, body, footer.",
+    "lo-ShapePlusImage.pptx": "LibreOffice draws the WordArt as curves with no text layer, so its PDF yields no words at all.",
+    "lo-formatting-bullet-indent.pptx": "bare-collabora spaces the title's letters apart ('Mast er st yl e'), so those three words do not match.",
+}
 SAMPLES = [
     ("lo-anchor-position.docx", "A picture anchored beside text. Position, size and text placement are identical."),
     ("sdk-sample.docx", "A six-row table with minimum row heights and cell margins. Row edges, baselines and the start of every line match; what is left is anti-aliasing of small bold text."),
@@ -217,6 +228,8 @@ td.iou{{min-width:220px}}
 td.iou .cell{{display:flex;align-items:center;gap:12px}}
 td.iou .num{{min-width:60px;text-align:right;font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}}
 td.fmt{{color:var(--text-2);font-size:15px;white-space:nowrap}}
+td.why{{color:var(--text-2);font-size:15px;min-width:320px;line-height:1.45}}
+#text table{{min-width:900px}}
 .tiles{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:20px}}
 .tile{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px}}
 .tile .lbl{{font-size:15px;color:var(--text);font-weight:500}}
@@ -344,19 +357,17 @@ ul.method li{{margin:6px 0}}
 {tile("In reading order", "How much of the source text comes back in the same order it was written?", order_o, order_r)}
 {tile("Nothing invented", "Of the words in the PDF text, how many exist in the source? Page numbers, list labels and formatted numbers lower this for both engines alike.", prec_o, prec_r)}
 </div>
-<p>Both engines return every source word, in order, for <b>{perfect} of the {len(scored)}</b> documents. The table lists the rest.</p>
-<div class="tablewrap"><table id="text"><thead><tr><th>Document</th><th class="num">Source words</th><th class="num">Recovered, ours</th><th class="num">Recovered, collabora</th><th class="num">In order, ours</th><th class="num">In order, collabora</th></tr></thead><tbody>""")
+<p>Both engines return every source word, in order, for <b>{perfect} of the {len(scored)}</b> documents. These are the other {len(imperfect)}, with the number of source words each engine's PDF gives back and why some are missing.</p>
+<div class="tablewrap"><table id="text"><thead><tr><th>Document</th><th class="num">Words in source</th><th class="num">Found by bare-x-to-pdf</th><th class="num">Found by bare-collabora</th><th>What happens</th></tr></thead><tbody>""")
     imperfect.sort(key=lambda t: t["ours"]["recall"] + t["ours"]["order"])
-
-    def cell(a, b, side):
-        cls = ' win' if (a > b + 0.0005 if side == "a" else b > a + 0.0005) else ''
-        return f'<td class="num{cls}">{pct(a if side == "a" else b)}</td>'
-
     for t in imperfect:
-        o, r = t["ours"], t["reference"]
-        w(f'<tr><td class="name">{esc(t["name"])}</td><td class="num">{t["sourceWords"]:,}</td>{cell(o["recall"], r["recall"], "a")}{cell(o["recall"], r["recall"], "b")}{cell(o["order"], r["order"], "a")}{cell(o["order"], r["order"], "b")}</tr>')
+        n = t["sourceWords"]
+        a, b = round(t["ours"]["recall"] * n), round(t["reference"]["recall"] * n)
+        wa = " win" if a > b else ""
+        wb = " win" if b > a else ""
+        w(f'<tr><td class="name">{esc(t["name"])}</td><td class="num">{n:,}</td><td class="num{wa}">{a} of {n}</td><td class="num{wb}">{b} of {n}</td><td class="why">{esc(TEXT_NOTES.get(t["name"], ""))}</td></tr>')
     w("""</tbody></table></div>
-<p class="note">Where the two differ the causes are concrete. When a numbered list label runs past its tab stop, both engines place the text at the next stop, which can leave no gap, so <code>3.2.1 xxxx</code> comes back as <code>3.2.1xxxx</code> from either PDF. LibreOffice draws WordArt as curves with no text layer, so that slide yields no words at all. Words are compared after Unicode normalisation, case-folded, with hyphen variants unified.</p>""")
+<p class="note">A word counts as found when it appears in the PDF text exactly, after Unicode normalisation, case-folding and unifying hyphen variants. A label or number glued to a word, or a value printed in a different form, therefore counts as missing for both engines alike.</p>""")
 
     # Speed
     max_ms = max(max(warm(ours_t, f), warm(ref_t, f)) for f in TIMING_FILES)
