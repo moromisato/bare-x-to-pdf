@@ -32,8 +32,8 @@ The native prebuild is an optional dependency per platform (`bare-x-to-pdf-<plat
 so an install downloads only the package for its own platform, about 17 MB packed and
 42 MB unpacked, plus the main package with the fonts and sources, about 4 MB packed.
 Prebuilds exist for android (arm, arm64, x64), darwin (arm64, x64), ios (arm64 and the
-arm64 and x64 simulators) and linux (arm64, x64). The win32-x64 package is not on npm yet,
-so Windows and other hosts build from source with the Bare toolchain, CMake 4 and Rust.
+arm64 and x64 simulators), linux (arm64, x64) and win32 (x64); other hosts build from a
+checkout with the Bare toolchain, CMake 4 and Rust.
 
 To bundle for a different platform, ask npm for that prebuild as well:
 
@@ -83,6 +83,21 @@ Return every supported pair as `{ from, to }`.
 ### `FONTS_DIR`
 
 Path to the bundled fonts directory.
+
+## Development
+
+The platform packages in `npm/` are npm workspaces, and each declares its own `os` and `cpu`
+so that installs download only one. In a checkout, install with `npm install --force` so npm
+links all of them, then build the host prebuild with `npm run prebuild` and run `npm test`.
+The fidelity benchmark in `bench/` has its own dependencies: `cd bench && npm install`.
+
+## Releases
+
+`.github/workflows/publish.yml` runs when a `v*` tag is pushed. Tag the commit whose
+`package.json` has that version, after running `npm run packages` to bring the platform
+packages to it. The workflow builds every platform, publishes the platform packages and then
+the main package through npm trusted publishing, and creates a GitHub release. A tag newer
+than npm's current `latest` publishes as `latest`; an older one as `release-<major>.<minor>`.
 
 ## License
 

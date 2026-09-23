@@ -26,10 +26,11 @@ function overlap(a, b) {
 function lcs(a, b) {
   if (!a.length || !b.length) return 0
   const ids = new Map()
-  const enc = (list) => list.map((w) => {
-    if (!ids.has(w)) ids.set(w, ids.size + 1)
-    return ids.get(w)
-  })
+  const enc = (list) =>
+    list.map((w) => {
+      if (!ids.has(w)) ids.set(w, ids.size + 1)
+      return ids.get(w)
+    })
   const x = enc(a)
   const y = enc(b)
   let prev = new Uint32Array(y.length + 1)

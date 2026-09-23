@@ -4,8 +4,9 @@ const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
 function unescape(text) {
   return text.replace(/&(#x[0-9a-fA-F]+|#\d+|\w+);/g, (m, code) => {
-    if (code[0] === '#') return String.fromCodePoint(code[1] === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10))
-    return entities[code] ?? m
+    if (code[0] !== '#') return entities[code] ?? m
+    const point = code[1] === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10)
+    return String.fromCodePoint(point)
   })
 }
 
@@ -23,8 +24,7 @@ function stripTags(xml) {
 function collect(xml, tag) {
   const out = []
   const open = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, 'g')
-  let m
-  while ((m = open.exec(xml))) out.push(unescape(m[1]))
+  for (const m of xml.matchAll(open)) out.push(unescape(m[1]))
   return out
 }
 
@@ -33,9 +33,11 @@ function paragraphs(xml, textTag, breakTags) {
   const out = []
   for (const para of clean.split(/<\/(?:w:p|a:p)>/)) {
     const words = []
-    const re = new RegExp(`<${textTag}(?:\\s[^>]*)?>([\\s\\S]*?)</${textTag}>|<(?:${breakTags})\\b[^>]*/>`, 'g')
-    let m
-    while ((m = re.exec(para))) words.push(m[1] === undefined ? ' ' : unescape(m[1]))
+    const re = new RegExp(
+      `<${textTag}(?:\\s[^>]*)?>([\\s\\S]*?)</${textTag}>|<(?:${breakTags})\\b[^>]*/>`,
+      'g'
+    )
+    for (const m of para.matchAll(re)) words.push(m[1] === undefined ? ' ' : unescape(m[1]))
     const line = words.join('').trim()
     if (line) out.push(line)
   }
@@ -47,7 +49,9 @@ function docx(bytes) {
   const parts = z
     .names()
     .filter((n) => /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/.test(n))
-    .sort((a, b) => (a === 'word/document.xml' ? -1 : b === 'word/document.xml' ? 1 : a.localeCompare(b)))
+    .sort((a, b) =>
+      a === 'word/document.xml' ? -1 : b === 'word/document.xml' ? 1 : a.localeCompare(b)
+    )
   return parts
     .map((name) =>
       paragraphs(
@@ -63,7 +67,9 @@ function docx(bytes) {
 }
 
 function odtBody(xml) {
-  const body = xml.match(/<office:text\b[\s\S]*?<\/office:text>/) || xml.match(/<office:body\b[\s\S]*?<\/office:body>/)
+  const body =
+    xml.match(/<office:text\b[\s\S]*?<\/office:text>/) ||
+    xml.match(/<office:body\b[\s\S]*?<\/office:body>/)
   const headers = collect(xml, 'style:header').concat(collect(xml, 'style:footer'))
   return [...headers.map(stripTags), body ? stripTags(body[0]) : ''].join('\n')
 }
@@ -109,7 +115,9 @@ function pptx(bytes) {
 
 function xlsx(bytes) {
   const z = zip.open(bytes)
-  const shared = collect(z.text('xl/sharedStrings.xml') || '', 'si').map((si) => stripTags(si.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '')))
+  const shared = collect(z.text('xl/sharedStrings.xml') || '', 'si').map((si) =>
+    stripTags(si.replace(/<rPh\b[\s\S]*?<\/rPh>/g, ''))
+  )
   const sheets = z
     .names()
     .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
@@ -133,7 +141,10 @@ function xlsx(bytes) {
       }
     }
   }
-  for (const name of z.names().filter((n) => /^xl\/drawings\/drawing\d+\.xml$/.test(n)).sort()) {
+  for (const name of z
+    .names()
+    .filter((n) => /^xl\/drawings\/drawing\d+\.xml$/.test(n))
+    .sort()) {
     const text = paragraphs(z.text(name), 'a:t', 'a:br')
     if (text) lines.push(text)
   }

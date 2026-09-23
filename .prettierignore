@@ -1,0 +1,6 @@
+build
+core/target
+bench/out
+bench/report
+bench/corpus/*.md
+npm/*/prebuilds
