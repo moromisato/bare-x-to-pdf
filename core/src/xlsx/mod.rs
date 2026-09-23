@@ -1,4 +1,5 @@
 mod biff;
+mod biff_art;
 pub(crate) mod format;
 mod formula;
 
@@ -975,14 +976,7 @@ fn sheet_extent(
     print_area: Option<(u32, u32, u32, u32)>,
 ) -> Extent {
     let (mut first_row, mut first_col, mut last_row, mut last_col) = (1, 1, max_row, max_col);
-    let width_of = |c: u32| -> f64 {
-        let spec = col_specs.iter().find(|(min, max, _, _)| c >= *min && c <= *max);
-        match spec {
-            Some((_, _, _, true)) => 0.0,
-            Some((_, _, w, _)) => chars_to_pt(*w, digit),
-            None => chars_to_pt(default_col_chars, digit),
-        }
-    };
+    let width_of = |c: u32| column_width(col_specs, default_col_chars, digit, c);
     for row in rows.values() {
         for (c, cell) in &row.cells {
             let xf = styles.xf(cell.style);
@@ -1017,6 +1011,14 @@ fn sheet_extent(
     }
     let col_widths = (1..=last_col.max(1)).map(width_of).collect();
     Extent { first_row, first_col, last_row, last_col, col_widths }
+}
+
+fn column_width(col_specs: &[(u32, u32, f64, bool)], default_col_chars: f64, digit: f64, col: u32) -> f64 {
+    match col_specs.iter().find(|(min, max, _, _)| col >= *min && col <= *max) {
+        Some((_, _, _, true)) => 0.0,
+        Some((_, _, w, _)) => chars_to_pt(*w, digit),
+        None => chars_to_pt(default_col_chars, digit),
+    }
 }
 
 fn border_side(style: &str, color: Color) -> BorderSide {

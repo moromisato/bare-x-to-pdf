@@ -1,6 +1,7 @@
+use super::biff_art;
 use super::{
-    auto_row_heights, border_side, digit_width, has_border, indexed_color, paper_size, sheet_extent, workbook_defaults,
-    workbook_document, CellData, CellValue, Font, PageOptions, RowData, Sheet, Styles, Xf,
+    auto_row_heights, border_side, column_width, digit_width, has_border, indexed_color, paper_size, sheet_extent, workbook_defaults,
+    workbook_document, CellData, CellValue, Font, PageOptions, RowData, Sheet, SheetDrawing, Styles, Xf,
 };
 use crate::error::Error;
 use crate::model::*;
@@ -50,6 +51,8 @@ const VERTICALPAGEBREAKS: u16 = 0x001A;
 const OBJ: u16 = 0x005D;
 const TXO: u16 = 0x01B6;
 const NOTE: u16 = 0x001C;
+const MSODRAWINGGROUP: u16 = 0x00EB;
+const MSODRAWING: u16 = 0x00EC;
 
 const BORDER_STYLES: [&str; 14] = [
     "none",
@@ -225,6 +228,7 @@ struct SheetEntry {
 
 struct Globals {
     styles: Styles,
+    blips: Vec<Option<ImageData>>,
     strings: Vec<Vec<(String, RunProps)>>,
     sheets: Vec<SheetEntry>,
     print_areas: HashMap<usize, (u32, u32, u32, u32)>,
@@ -298,6 +302,7 @@ fn read_globals(records: &[Record]) -> Globals {
     let mut sheets = Vec::new();
     let mut print_areas = HashMap::new();
     let mut raw_xfs: Vec<Vec<u8>> = Vec::new();
+    let mut drawing_group: Vec<u8> = Vec::new();
 
     for record in records.iter().skip(1).take_while(|r| r.kind != EOF) {
         let data = record.data();
@@ -330,6 +335,7 @@ fn read_globals(records: &[Record]) -> Globals {
                 });
             }
             SST => strings = shared_strings(record, &fonts),
+            MSODRAWINGGROUP => record.parts.iter().for_each(|part| drawing_group.extend_from_slice(part)),
             NAME => {
                 if let Some((sheet, area)) = print_area(data) {
                     print_areas.insert(sheet, area);
@@ -352,6 +358,7 @@ fn read_globals(records: &[Record]) -> Globals {
         xfs.push(Xf { v_align: VAlign::Bottom, ..Xf::default() });
     }
     Globals {
+        blips: biff_art::blip_store(&drawing_group),
         styles: Styles { fonts, xfs, num_fmts, dxfs: Vec::new() },
         strings,
         sheets,
@@ -541,6 +548,7 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
     let mut objects: Vec<(u16, u16)> = Vec::new();
     let mut texts: HashMap<u16, String> = HashMap::new();
     let mut note_cells: Vec<(u32, u32, u16)> = Vec::new();
+    let mut drawing: Vec<u8> = Vec::new();
 
     for record in records {
         match record.kind {
@@ -561,7 +569,10 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         let data = record.data();
         let (row, col, style) = (le16(data, 0), le16(data, 2), le16(data, 4));
         match record.kind {
-            DEFCOLWIDTH => default_col_chars = le16(data, 0) as f64 + 0.71,
+            DEFCOLWIDTH => {
+                let font_twips = globals.styles.font(0).size.unwrap_or(10.0) * 20.0;
+                default_col_chars = le16(data, 0) as f64 + (40960.0 / (font_twips - 15.0).max(60.0) + 50.0) / 256.0;
+            }
             STANDARDWIDTH => standard_width = Some(le16(data, 0) as f64 / 256.0),
             COLINFO => col_specs.push((
                 le16(data, 0) as u32 + 1,
@@ -710,6 +721,7 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
                 }
             }
             NOTE => note_cells.push((row as u32 + 1, col as u32 + 1, le16(data, 6))),
+            MSODRAWING => record.parts.iter().for_each(|part| drawing.extend_from_slice(part)),
             HORIZONTALPAGEBREAKS | VERTICALPAGEBREAKS => {
                 let count = le16(data, 0) as usize;
                 let breaks: Vec<u32> = (0..count).map(|i| le16(data, 2 + i * 6) as u32).filter(|b| *b > 0).collect();
@@ -733,6 +745,27 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
     if let Some(footer) = &page.footer {
         page.body_bottom = Some(calc_body_edge(footer, default_size, page.margin_bottom, page.margin_footer));
     }
+    let col_width = |c: u32| column_width(&col_specs, default_col_chars, digit, c);
+    let row_height = |r: u32| builder.rows.get(&r).and_then(|d| d.height).unwrap_or(default_row_height);
+    let x_of = |col: u16, dx: u16| -> f64 {
+        (1..=col as u32).map(col_width).sum::<f64>() + col_width(col as u32 + 1) * (dx.min(1024) as f64 / 1024.0)
+    };
+    let y_of = |row: u16, dy: u16| -> f64 {
+        (1..=row as u32).map(row_height).sum::<f64>() + row_height(row as u32 + 1) * (dy.min(256) as f64 / 256.0)
+    };
+    let mut drawings = Vec::new();
+    for shape in biff_art::shapes(&drawing) {
+        let (Some(anchor), Some(index)) = (&shape.anchor, shape.picture) else { continue };
+        if shape.hidden || shape.child {
+            continue;
+        }
+        let Some(Some(image)) = globals.blips.get(index) else { continue };
+        let (x, y) = (x_of(anchor.col1, anchor.dx1), y_of(anchor.row1, anchor.dy1));
+        let (x2, y2) = (x_of(anchor.col2, anchor.dx2), y_of(anchor.row2, anchor.dy2));
+        drawings.push(SheetDrawing { x, y, width: (x2 - x).max(0.0), height: (y2 - y).max(0.0), content: DrawingContent::Image(image.clone()) });
+        builder.max_row = builder.max_row.max(anchor.row2 as u32 + 1);
+        builder.max_col = builder.max_col.max(anchor.col2 as u32 + 1);
+    }
     let extent = sheet_extent(styles, &builder.rows, &col_specs, default_col_chars, digit, builder.max_row, builder.max_col, print_area);
     let notes = note_cells
         .into_iter()
@@ -741,7 +774,7 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
     Sheet {
         notes,
         conditional: Vec::new(),
-        drawings: Vec::new(),
+        drawings,
         col_widths: extent.col_widths,
         rows: builder.rows,
         merges,
