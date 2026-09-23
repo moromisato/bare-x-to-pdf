@@ -32,8 +32,6 @@
     "test": "npm run test:bare",
     "test:bare": "brittle-bare test/all.mjs",
     "test:generate": "brittle-make-test test/all.mjs test/*.js",
-    "bench": "bare bench/run.js",
-    "bench:text": "bare bench/text.js",
     "prebuild": "bare-make generate && bare-make build && bare-make install --prefix npm/$(bare -p 'Bare.platform + \"-\" + Bare.arch')/prebuilds && bare scripts/link-host.js",
     "packages": "bare scripts/platform-packages.js && prettier --write npm"
   },
@@ -66,8 +64,6 @@
   },
   "devDependencies": {
     "bare-fs": "^4.0.0",
-    "bare-pdfium": "^1.3.0",
-    "bare-zlib": "^1.0.0",
     "brittle": "^4.1.0",
     "cmake-bare": "^1.8.3",
     "cmake-fetch": "^1.5.1",

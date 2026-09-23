@@ -1,11 +1,11 @@
 const fs = require('bare-fs')
 const path = require('bare-path')
-const { rasterize } = require('../bench/lib/raster')
-const { encodeGray } = require('../bench/lib/png')
+const { rasterize } = require('./lib/raster')
+const { encodeGray } = require('./lib/png')
 
 const [, , input, outDir = '.', scaleArg = '1'] = Bare.argv
 if (!input) {
-  console.error('usage: bare scripts/pdf-to-png.js <file.pdf> [out-dir] [scale]')
+  console.error('usage: bare pdf-to-png.js <file.pdf> [out-dir] [scale]')
   Bare.exit(1)
 }
 
