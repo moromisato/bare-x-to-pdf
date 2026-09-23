@@ -1,5 +1,6 @@
 pub mod emit;
 pub mod fonts;
+mod notes;
 pub mod world;
 
 use crate::error::Error;
@@ -31,8 +32,15 @@ pub fn render_pdf(doc: &Document, fonts_dir: &Path) -> Result<Vec<u8>, Error> {
         .output
         .map_err(|errors| Error::new(format!("layout failed: {}", diagnostics(&errors))))?;
 
-    let pdf = typst_pdf::pdf(&paged, &PdfOptions::default())
+    let mut pdf = typst_pdf::pdf(&paged, &PdfOptions::default())
         .map_err(|errors| Error::new(format!("pdf export failed: {}", diagnostics(&errors))))?;
+
+    let has_notes = doc.sections.iter().any(|s| !s.notes.is_empty());
+    if has_notes && paged.pages().len() == doc.sections.len() {
+        let pages: Vec<(f64, &[crate::model::PageNote])> =
+            doc.sections.iter().map(|s| (s.page.height, s.notes.as_slice())).collect();
+        pdf = notes::append_notes(pdf, &pages)?;
+    }
 
     typst::comemo::evict(0);
     Ok(pdf)

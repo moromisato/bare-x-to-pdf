@@ -33,7 +33,9 @@ test('lists supported conversions', (t) => {
       'xlsx>pdf',
       'xlsm>pdf',
       'xltx>pdf',
-      'xltm>pdf'
+      'xltm>pdf',
+      'xls>pdf',
+      'xlt>pdf'
     ]
   )
 })
@@ -65,6 +67,16 @@ test('converts a pptx deck to one pdf page per slide', (t) => {
   const size = doc.pageSize(0)
   t.ok(Math.abs(size.width - 720) < 1)
   t.ok(Math.abs(size.height - 405) < 1)
+  t.ok(doc.pageFlags(0).hasText)
+  doc.close()
+})
+
+test('converts an xls workbook to pdf', (t) => {
+  const xls = fixture('lo-formats.xls')
+  t.is(converter.detect(xls), 'xls')
+  const pdf = converter.convert(xls, { to: 'pdf' })
+  const doc = pdfium.open(pdf)
+  t.ok(doc.pageCount() >= 1)
   t.ok(doc.pageFlags(0).hasText)
   doc.close()
 })

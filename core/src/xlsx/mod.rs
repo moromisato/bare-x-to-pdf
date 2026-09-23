@@ -1,5 +1,11 @@
+mod biff;
+mod biff_art;
+mod biff_cf;
+mod biff_chart;
 pub(crate) mod format;
 mod formula;
+
+pub use biff::read as read_xls;
 
 use crate::error::Error;
 use crate::model::*;
@@ -66,12 +72,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         }
     }
 
-    let mut doc = Document {
-        default_tab: 36.0,
-        additive_spacing: true,
-        cell_metrics: true,
-        ..Document::default()
-    };
+    let doc = workbook_defaults();
 
     let sheets: Vec<&Element> = workbook
         .child("sheets")
@@ -88,21 +89,9 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         let root = xml::parse(&data)?;
         let name = sheet.attr("name").unwrap_or("Sheet").to_string();
         let mut parsed = parse_sheet(&root, &styles, &shared, print_areas.get(&index).map(String::as_str));
-        let default_height = parsed.default_row_height;
-        for row in parsed.rows.values_mut() {
-            if row.height.is_none() {
-                let largest = row
-                    .cells
-                    .values()
-                    .map(|c| styles.font(styles.xf(c.style).font).size.unwrap_or(10.0))
-                    .fold(0.0, f64::max);
-                let needed = largest * 1.117 + 2.0;
-                if largest > styles.font(0).size.unwrap_or(10.0) + 0.01 && needed > default_height {
-                    row.height = Some(needed);
-                }
-            }
-        }
+        auto_row_heights(&mut parsed, &styles);
         parsed.drawings = read_drawings(&mut archive, path, &parsed, &theme)?;
+        parsed.notes = read_comments(&mut archive, path)?;
         for drawing in &parsed.drawings {
             let (col, row) = cell_at(&parsed, drawing.x + drawing.width, drawing.y + drawing.height);
             if parsed.first_row == 0 {
@@ -114,13 +103,43 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         }
         parsed_sheets.push((name, parsed));
     }
+    Ok(workbook_document(doc, &parsed_sheets, &styles))
+}
+
+fn workbook_defaults() -> Document {
+    Document {
+        default_tab: 36.0,
+        additive_spacing: true,
+        cell_metrics: true,
+        ..Document::default()
+    }
+}
+
+fn auto_row_heights(sheet: &mut Sheet, styles: &Styles) {
+    let default_height = sheet.default_row_height;
+    for row in sheet.rows.values_mut() {
+        if row.height.is_none() {
+            let largest = row
+                .cells
+                .values()
+                .map(|c| styles.font(styles.xf(c.style).font).size.unwrap_or(10.0))
+                .fold(0.0, f64::max);
+            let needed = largest * 1.117 + 2.0;
+            if largest > styles.font(0).size.unwrap_or(10.0) + 0.01 && needed > default_height {
+                row.height = Some(needed);
+            }
+        }
+    }
+}
+
+fn workbook_document(mut doc: Document, parsed_sheets: &[(String, Sheet)], styles: &Styles) -> Document {
     let any_content = parsed_sheets.iter().any(|(_, s)| s.last_row > 0 && s.last_col > 0);
     for (index, (name, parsed)) in parsed_sheets.iter().enumerate() {
         let empty = parsed.last_row == 0 || parsed.last_col == 0;
         if empty && (any_content || index > 0) {
             continue;
         }
-        doc.sections.extend(paginate(parsed, name, &styles));
+        doc.sections.extend(paginate(parsed, name, styles));
     }
     if doc.sections.is_empty() {
         doc.sections.push(Section {
@@ -137,7 +156,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
             ..Section::default()
         });
     }
-    Ok(doc)
+    doc
 }
 
 fn sheet_col_width(sheet: &Sheet, col: u32) -> f64 {
@@ -304,6 +323,7 @@ struct Dxf {
 #[derive(Debug, Clone)]
 struct CondRule {
     range: (u32, u32, u32, u32),
+    origin: (u32, u32),
     priority: i64,
     dxf: usize,
     kind: String,
@@ -331,7 +351,7 @@ fn conditional_dxf<'a>(sheet: &Sheet, styles: &'a Styles, row: u32, col: u32, va
     rules.sort_by_key(|r| r.priority);
     let cells = |r: u32, c: u32| cell_value(sheet, r, c);
     for rule in rules {
-        let ctx = formula::Context { cell: &cells, row_offset: row as i64 - rule.range.0 as i64, col_offset: col as i64 - rule.range.1 as i64 };
+        let ctx = formula::Context { cell: &cells, row_offset: row as i64 - rule.origin.0 as i64, col_offset: col as i64 - rule.origin.1 as i64 };
         let operand = |i: usize| rule.formulas.get(i).and_then(|f| formula::evaluate(f, &ctx));
         let number = |v: &formula::Value| match v {
             formula::Value::Num(n) => Some(*n),
@@ -577,17 +597,8 @@ fn indexed_color(index: usize) -> Option<Color> {
 fn parse_borders(b: &Element, theme: &Theme) -> Borders {
     let side = |name: &str| -> BorderSide {
         let Some(el) = b.child(name) else { return BorderSide::Unset };
-        let width = match el.attr("style") {
-            None | Some("none") => return BorderSide::None,
-            Some("thin") | Some("dashed") | Some("dotted") | Some("dashDot") | Some("dashDotDot") | Some("slantDashDot") => 0.5,
-            Some("medium") | Some("mediumDashed") | Some("mediumDashDot") | Some("mediumDashDotDot") => 1.0,
-            Some("thick") => 1.5,
-            Some("double") => 1.5,
-            Some("hair") => 0.25,
-            Some(_) => 0.5,
-        };
         let color = el.child("color").and_then(|c| parse_color(c, theme)).unwrap_or(Color(0, 0, 0));
-        BorderSide::Line { width, color, style: LineStyle::from_name(el.attr("style").unwrap_or("")) }
+        border_side(el.attr("style").unwrap_or(""), color)
     };
     Borders {
         top: side("top"),
@@ -640,6 +651,8 @@ struct PageOptions {
     h_center: bool,
     header: Option<String>,
     footer: Option<String>,
+    body_top: Option<f64>,
+    body_bottom: Option<f64>,
 }
 
 impl Default for PageOptions {
@@ -662,6 +675,8 @@ impl Default for PageOptions {
             h_center: false,
             header: None,
             footer: None,
+            body_top: None,
+            body_bottom: None,
         }
     }
 }
@@ -675,6 +690,7 @@ struct SheetDrawing {
 }
 
 struct Sheet {
+    notes: BTreeMap<(u32, u32), String>,
     conditional: Vec<CondRule>,
     drawings: Vec<SheetDrawing>,
     col_widths: Vec<f64>,
@@ -788,8 +804,6 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
     let mut rows: BTreeMap<u32, RowData> = BTreeMap::new();
     let mut max_col = 0u32;
     let mut max_row = 0u32;
-    let mut min_col = u32::MAX;
-    let mut min_row = u32::MAX;
     if let Some(data) = root.child("sheetData") {
         for row in data.children("row") {
             let Some(r) = row.attr("r").and_then(|v| v.parse::<u32>().ok()) else { continue };
@@ -827,8 +841,6 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
                 if !matches!(value, CellValue::Empty) || formatted {
                     max_col = max_col.max(c);
                     max_row = max_row.max(r);
-                    min_col = min_col.min(c);
-                    min_row = min_row.min(r);
                 }
                 row_data.cells.insert(c, CellData { value, style });
             }
@@ -847,64 +859,7 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
         }
     }
 
-    let (mut first_row, mut first_col, mut last_row, mut last_col) = (1, 1, max_row, max_col);
-    if min_row != u32::MAX {
-        first_row = 1;
-        first_col = 1;
-    }
-    let width_of = |c: u32| -> f64 {
-        let spec = col_specs.iter().find(|(min, max, _, _)| c >= *min && c <= *max);
-        match spec {
-            Some((_, _, _, true)) => 0.0,
-            Some((_, _, w, _)) => chars_to_pt(*w, digit),
-            None => chars_to_pt(default_col_chars, digit),
-        }
-    };
-    for (_, row) in &rows {
-        for (c, cell) in &row.cells {
-            let xf = styles.xf(cell.style);
-            if xf.wrap || !matches!(xf.h_align, None | Some(Align::Left)) {
-                continue;
-            }
-            let CellValue::Text(parts) = &cell.value else { continue };
-            let font = styles.font(xf.font);
-            let size = font.size.unwrap_or(11.0);
-            let chars: usize = parts.iter().map(|(t, _)| t.chars().count()).sum();
-            let mut needed = chars as f64 * size * 0.5 + 3.0;
-            let mut col = *c;
-            needed -= width_of(col);
-            while needed > 0.0 && col < 200 {
-                col += 1;
-                if row.cells.get(&col).map(|n| !matches!(n.value, CellValue::Empty)).unwrap_or(false) {
-                    break;
-                }
-                needed -= width_of(col);
-            }
-            if col > *c && needed <= 0.0 {
-                max_col = max_col.max(col);
-            } else if col > *c {
-                max_col = max_col.max(col);
-            }
-        }
-    }
-    last_col = last_col.max(max_col);
-    if let Some(area) = print_area.and_then(parse_range) {
-        first_row = area.0;
-        first_col = area.1;
-        last_row = area.2;
-        last_col = area.3;
-    }
-
-    let mut col_widths = Vec::new();
-    for c in 1..=last_col.max(1) {
-        let spec = col_specs.iter().find(|(min, max, _, _)| c >= *min && c <= *max);
-        let width = match spec {
-            Some((_, _, _, true)) => 0.0,
-            Some((_, _, w, _)) => chars_to_pt(*w, digit),
-            None => chars_to_pt(default_col_chars, digit),
-        };
-        col_widths.push(width);
-    }
+    let extent = sheet_extent(styles, &rows, &col_specs, default_col_chars, digit, max_row, max_col, print_area.and_then(parse_range));
 
     let mut page = PageOptions::default();
     if root.child("pageMargins").is_none() {
@@ -959,16 +914,17 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
     };
 
     Sheet {
+        notes: BTreeMap::new(),
         drawings: Vec::new(),
-        col_widths,
+        col_widths: extent.col_widths,
         rows,
         merges,
         default_row_height,
         page,
-        first_row,
-        last_row,
-        first_col,
-        last_col,
+        first_row: extent.first_row,
+        last_row: extent.last_row,
+        first_col: extent.first_col,
+        last_col: extent.last_col,
         conditional: root
             .children("conditionalFormatting")
             .flat_map(|cf| {
@@ -982,10 +938,12 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
                         let operator = rule.attr("operator").unwrap_or("").to_string();
                         let kind = rule.attr("type").unwrap_or("").to_string();
                         let text = rule.attr("text").map(str::to_owned);
+                        let origin = ranges.first().map_or((1, 1), |r| (r.0, r.1));
                         ranges
                             .iter()
                             .map(|range| CondRule {
                                 range: *range,
+                                origin,
                                 priority,
                                 dxf,
                                 kind: kind.clone(),
@@ -1001,6 +959,84 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
         row_breaks: breaks("rowBreaks"),
         col_breaks: breaks("colBreaks"),
     }
+}
+
+struct Extent {
+    first_row: u32,
+    first_col: u32,
+    last_row: u32,
+    last_col: u32,
+    col_widths: Vec<f64>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sheet_extent(
+    styles: &Styles,
+    rows: &BTreeMap<u32, RowData>,
+    col_specs: &[(u32, u32, f64, bool)],
+    default_col_chars: f64,
+    digit: f64,
+    max_row: u32,
+    mut max_col: u32,
+    print_area: Option<(u32, u32, u32, u32)>,
+) -> Extent {
+    let (mut first_row, mut first_col, mut last_row, mut last_col) = (1, 1, max_row, max_col);
+    let width_of = |c: u32| column_width(col_specs, default_col_chars, digit, c);
+    for row in rows.values() {
+        for (c, cell) in &row.cells {
+            let xf = styles.xf(cell.style);
+            if xf.wrap || !matches!(xf.h_align, None | Some(Align::Left)) {
+                continue;
+            }
+            let CellValue::Text(parts) = &cell.value else { continue };
+            let font = styles.font(xf.font);
+            let size = font.size.unwrap_or(11.0);
+            let chars: usize = parts.iter().map(|(t, _)| t.chars().count()).sum();
+            let mut needed = chars as f64 * size * 0.5 + 3.0;
+            let mut col = *c;
+            needed -= width_of(col);
+            while needed > 0.0 && col < 200 {
+                col += 1;
+                if row.cells.get(&col).map(|n| !matches!(n.value, CellValue::Empty)).unwrap_or(false) {
+                    break;
+                }
+                needed -= width_of(col);
+            }
+            if col > *c {
+                max_col = max_col.max(col);
+            }
+        }
+    }
+    last_col = last_col.max(max_col);
+    if let Some(area) = print_area {
+        first_row = area.0;
+        first_col = area.1;
+        last_row = area.2;
+        last_col = area.3;
+    }
+    let col_widths = (1..=last_col.max(1)).map(width_of).collect();
+    Extent { first_row, first_col, last_row, last_col, col_widths }
+}
+
+fn column_width(col_specs: &[(u32, u32, f64, bool)], default_col_chars: f64, digit: f64, col: u32) -> f64 {
+    match col_specs.iter().find(|(min, max, _, _)| col >= *min && col <= *max) {
+        Some((_, _, _, true)) => 0.0,
+        Some((_, _, w, _)) => chars_to_pt(*w, digit),
+        None => chars_to_pt(default_col_chars, digit),
+    }
+}
+
+fn border_side(style: &str, color: Color) -> BorderSide {
+    let width = match style {
+        "" | "none" => return BorderSide::None,
+        "thin" | "dashed" | "dotted" | "dashDot" | "dashDotDot" | "slantDashDot" => 0.5,
+        "medium" | "mediumDashed" | "mediumDashDot" | "mediumDashDotDot" => 1.0,
+        "thick" => 1.5,
+        "double" => 1.5,
+        "hair" => 0.25,
+        _ => 0.5,
+    };
+    BorderSide::Line { width, color, style: LineStyle::from_name(style) }
 }
 
 fn has_border(b: &Borders) -> bool {
@@ -1042,8 +1078,16 @@ fn paper_size(code: u32) -> (f64, f64) {
 fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
     let page = &sheet.page;
     let band = styles.font(0).size.unwrap_or(10.0) * 1.117 + 7.1;
-    let top_margin = if page.header.is_some() { page.margin_top.max(page.margin_header + band) } else { page.margin_top };
-    let bottom_margin = if page.footer.is_some() { page.margin_bottom.max(page.margin_footer + band) } else { page.margin_bottom };
+    let top_margin = match (&page.header, page.body_top) {
+        (Some(_), Some(top)) => top,
+        (Some(_), None) => page.margin_top.max(page.margin_header + band),
+        _ => page.margin_top,
+    };
+    let bottom_margin = match (&page.footer, page.body_bottom) {
+        (Some(_), Some(bottom)) => bottom,
+        (Some(_), None) => page.margin_bottom.max(page.margin_footer + band),
+        _ => page.margin_bottom,
+    };
     if sheet.last_row == 0 || sheet.last_col == 0 {
         let mut section = Section {
             page: PageSetup {
@@ -1148,7 +1192,9 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
                 )
             })
             .collect();
+        let notes = page_notes(sheet, rg, cg, page.margin_left + table.indent * scale, top_margin, scale);
         let mut section = Section {
+            notes,
             page: PageSetup {
                 width: page.width,
                 height: page.height,
@@ -1172,6 +1218,56 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
         sections.push(section);
     }
     sections
+}
+
+fn page_notes(sheet: &Sheet, rows: &[u32], cols: &[u32], left: f64, top: f64, scale: f64) -> Vec<PageNote> {
+    let col_w = |c: u32| sheet.col_widths.get((c - 1) as usize).copied().unwrap_or(48.0);
+    let row_h = |r: u32| sheet.rows.get(&r).and_then(|d| d.height).unwrap_or(sheet.default_row_height);
+    sheet
+        .notes
+        .iter()
+        .filter(|((r, c), _)| rows.contains(r) && cols.contains(c))
+        .map(|((r, c), text)| {
+            let x: f64 = cols.iter().take_while(|k| *k <= c).map(|k| col_w(*k)).sum();
+            let y: f64 = rows.iter().take_while(|k| *k < r).map(|k| row_h(*k)).sum();
+            PageNote { x: left + x * scale, y: top + y * scale, scale, title: cell_name(*r, *c), text: text.clone() }
+        })
+        .collect()
+}
+
+fn cell_name(row: u32, col: u32) -> String {
+    let mut letters = String::new();
+    let mut n = col;
+    while n > 0 {
+        let rem = ((n - 1) % 26) as u8;
+        letters.insert(0, (b'A' + rem) as char);
+        n = (n - 1) / 26;
+    }
+    format!("{letters}{row}")
+}
+
+fn read_comments<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, sheet_path: &str) -> Result<BTreeMap<(u32, u32), String>, Error> {
+    let mut notes = BTreeMap::new();
+    let (dir, file) = sheet_path.rsplit_once('/').unwrap_or(("", sheet_path));
+    let Some(rels) = entry(archive, &format!("{dir}/_rels/{file}.rels"))? else { return Ok(notes) };
+    let rels = xml::parse(&rels)?;
+    for rel in rels.children("Relationship") {
+        if !rel.attr("Type").unwrap_or("").ends_with("/comments") {
+            continue;
+        }
+        let Some(target) = rel.attr("Target") else { continue };
+        let Some(data) = entry(archive, &resolve_path(dir, target))? else { continue };
+        let root = xml::parse(&data)?;
+        for comment in root.child("commentList").into_iter().flat_map(|l| l.children("comment")) {
+            let Some((c, r)) = comment.attr("ref").and_then(column_index) else { continue };
+            let text: String = comment
+                .child("text")
+                .map(|t| t.text())
+                .unwrap_or_default();
+            notes.insert((r, c), text);
+        }
+    }
+    Ok(notes)
 }
 
 fn overflow_source(sheet: &Sheet, styles: &Styles, data: Option<&RowData>, col: u32) -> Option<(u32, f64)> {
@@ -1349,6 +1445,7 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
                     .filter(|(t, _)| !t.is_empty())
                     .flat_map(|(text, props)| {
                         let mut out = Vec::new();
+                        let text = if xf.wrap { text } else { text.replace(['\r', '\n'], "") };
                         for (i, line) in text.split('\n').enumerate() {
                             if i > 0 {
                                 out.push(Inline::LineBreak);

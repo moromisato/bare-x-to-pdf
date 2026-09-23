@@ -13,6 +13,8 @@ export type Format =
   | 'xlsm'
   | 'xltx'
   | 'xltm'
+  | 'xls'
+  | 'xlt'
 
 export interface ConvertOptions {
   to: Format | string

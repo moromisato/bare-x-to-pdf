@@ -196,7 +196,7 @@ pub(crate) fn parse_chart(root: &Element) -> Option<Chart> {
                 categories = cache_points(cat).into_iter().map(|p| p.unwrap_or_default()).collect();
             }
         }
-        series.push(ChartSeries { name, values });
+        series.push(ChartSeries { name, values, color: None, point_colors: Vec::new(), no_line: false });
     }
     if series.is_empty() {
         return None;
@@ -216,7 +216,7 @@ pub(crate) fn parse_chart(root: &Element) -> Option<Chart> {
     let gap_width = group.child("gapWidth").and_then(|g| g.attr("val")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(150.0);
     let markers = group.child("marker").and_then(|m| m.attr("val")).map(|v| v != "0").unwrap_or(true)
         && !group.children("ser").any(|s| s.child("marker").and_then(|m| m.child("symbol")).and_then(|s| s.attr("val")) == Some("none"));
-    Some(Chart { title: chart_title(root), kind, categories, series, legend, gap_width, markers })
+    Some(Chart { title: chart_title(root), kind, categories, series, legend, gap_width, markers, style: ChartStyle::default() })
 }
 
 pub(crate) fn chart_title(root: &Element) -> Option<String> {

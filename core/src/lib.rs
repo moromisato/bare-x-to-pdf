@@ -19,8 +19,12 @@ pub struct Options<'a> {
 }
 
 pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<Vec<u8>, Error> {
+    let compound = input.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]).then(|| compound_kind(input)).flatten();
     let from = match from {
         "doc" | "dot" if input.starts_with(b"PK") => "docx",
+        "xls" | "xlt" if input.starts_with(b"PK") => "xlsx",
+        "doc" | "dot" | "docx" | "docm" | "dotx" | "dotm" if compound == Some("xls") => "xls",
+        "xls" | "xlt" | "xlsx" | "xlsm" | "xltx" | "xltm" if compound == Some("doc") => "doc",
         "docx" | "docm" | "dotx" | "dotm" if input.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) => "doc",
         "odt" | "ott" if input.starts_with(b"<") || input.starts_with(&[0xEF, 0xBB, 0xBF]) => "fodt",
         other => other,
@@ -42,11 +46,26 @@ pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<
             let document = xlsx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
+        ("xls" | "xlt", "pdf") => {
+            let document = xlsx::read_xls(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
         ("pptx", "pdf") => {
             let document = pptx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
         _ => Err(Error::new(format!("conversion from {from} to {to} is not supported"))),
+    }
+}
+
+fn compound_kind(input: &[u8]) -> Option<&'static str> {
+    let file = cfb::CompoundFile::open(std::io::Cursor::new(input)).ok()?;
+    if file.exists("/WordDocument") {
+        Some("doc")
+    } else if file.exists("/Workbook") || file.exists("/Book") {
+        Some("xls")
+    } else {
+        None
     }
 }
 

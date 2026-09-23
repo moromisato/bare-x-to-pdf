@@ -1953,6 +1953,7 @@ version = "0.1.0"
 dependencies = [
  "cfb",
  "encoding_rs",
+ "png",
  "quick-xml 0.42.0",
  "ttf-parser",
  "typst",
