@@ -49,6 +49,11 @@ SAMPLES = [
     ("sdk-sample.pptx", "Four slides with placeholders, shapes and a table styled from the master. Kerning follows Impress."),
     ("lo-formats.xlsx", "Number, percentage, currency, scientific, fraction and boolean formats. Values and alignment match; small text makes the score sensitive to half-point offsets."),
     ("lo-ShapePlusImage.pptx", "WordArt text warps. LibreOffice bends the text along the shape; we render it straight. Not planned."),
+    ("sdk-sample.xls", "A student roster from the SDK test project. Column widths, clipping at the cell edge and number alignment match LibreOffice to a quarter point."),
+    ("picture.xls", "A PNG picture anchored from B3 to E12, read from the workbook's drawing layer and placed by its cell anchor. Size and position match."),
+    ("charts.xls", "Column, pie and line charts read from the embedded chart streams, with their data taken from the sheet cells. LibreOffice smooths the line chart and draws diamond markers; ours draws straight lines with square markers."),
+    ("cond-format.xls", "Four conditional formats: value comparisons with red and green fills, and formula rules that make a row bold red and a status italic blue. Every rule applies as in LibreOffice."),
+    ("comments.xls", "Two cell comments become PDF sticky notes pinned to the cell's top-right corner, the way LibreOffice's export does it. The icons are the viewer's rendering of those notes."),
 ]
 
 
@@ -260,6 +265,8 @@ td.why{{color:var(--text-2);font-size:15px;min-width:320px;line-height:1.45}}
 .sample{{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px}}
 .sample figcaption{{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px}}
 .sample-name{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:16px;font-weight:500}}
+.sample-fmt{{font-size:14px;color:var(--muted)}}
+.sample[hidden]{{display:none}}
 .pill{{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;padding:3px 10px;border-radius:999px}}
 .pill.good{{background:var(--good-bg);color:var(--good)}}.pill.fair{{background:var(--fair-bg);color:var(--fair)}}.pill.weak{{background:var(--weak-bg);color:var(--weak)}}
 .triple{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}
@@ -331,7 +338,7 @@ ul.method li{{margin:6px 0}}
     w(f"""
 <h2>Every case</h2>
 <p>One row per document, best match first. Times are the in-process conversion of each file during the run, with both engines warm. Filter by format, or click a column header to sort.</p>
-<div class="chips"><button class="chip" data-fmt="all" aria-pressed="true">All formats</button>""")
+<div class="chips" id="case-chips"><button class="chip" data-fmt="all" aria-pressed="true">All formats</button>""")
     for fmt in FORMAT_ORDER:
         if fmt in by_format:
             w(f'<button class="chip" data-fmt="{fmt}" aria-pressed="false">{esc(FORMAT_NAMES[fmt])}</button>')
@@ -400,9 +407,14 @@ ul.method li{{margin:6px 0}}
     # Side by side
     w("""
 <h2>Side by side</h2>
-<p>First page of six cases across the range. The overlay paints the reference in blue and ours in red; where they agree the ink is dark.</p>
-<div class="samples">""")
+<p>First page of {len(SAMPLES)} cases across the range. The overlay paints the reference in blue and ours in red; where they agree the ink is dark.</p>""")
     by_name = {r["name"]: r for r in cases}
+    sample_formats = [f for f in FORMAT_ORDER if any(n.rsplit(".", 1)[-1] == f for n, _ in SAMPLES)]
+    w('<div class="chips" id="sample-chips"><button class="chip" data-fmt="all" aria-pressed="true">All formats</button>')
+    for fmt in sample_formats:
+        count = sum(1 for n, _ in SAMPLES if n.rsplit(".", 1)[-1] == fmt)
+        w(f'<button class="chip" data-fmt="{fmt}" aria-pressed="false">{esc(FORMAT_NAMES[fmt])} · {count}</button>')
+    w('</div><div class="samples">')
     for name, note in SAMPLES:
         r = by_name.get(name)
         if not r:
@@ -412,7 +424,7 @@ ul.method li{{margin:6px 0}}
         if not all(os.path.exists(p) for p in imgs):
             continue
         g = grade(r["inkIou"])
-        w(f'<figure class="sample"><figcaption><span class="sample-name">{esc(name)}</span><span class="pill {g}">{pct(r["inkIou"])} ink overlap</span></figcaption><div class="triple"><div><img src="{data_uri(imgs[0])}" alt="bare-collabora page 1 of {esc(name)}"><span>bare-collabora</span></div><div><img src="{data_uri(imgs[1])}" alt="bare-x-to-pdf page 1 of {esc(name)}"><span>bare-x-to-pdf</span></div><div><img src="{data_uri(imgs[2])}" alt="overlay of both pages"><span>overlay: blue reference only, red ours only</span></div></div><p class="note">{esc(note)}</p></figure>')
+        w(f'<figure class="sample" data-fmt="{name.rsplit(".", 1)[-1]}"><figcaption><span class="sample-name">{esc(name)}</span><span class="sample-fmt">{esc(FORMAT_NAMES[name.rsplit(".", 1)[-1]])}</span><span class="pill {g}">{pct(r["inkIou"])} ink overlap</span></figcaption><div class="triple"><div><img src="{data_uri(imgs[0])}" alt="bare-collabora page 1 of {esc(name)}"><span>bare-collabora</span></div><div><img src="{data_uri(imgs[1])}" alt="bare-x-to-pdf page 1 of {esc(name)}"><span>bare-x-to-pdf</span></div><div><img src="{data_uri(imgs[2])}" alt="overlay of both pages"><span>overlay: blue reference only, red ours only</span></div></div><p class="note">{esc(note)}</p></figure>')
     w("</div>")
 
     # Method
@@ -430,9 +442,9 @@ ul.method li{{margin:6px 0}}
 </div>
 <script>
 (function(){{
-  const chips=document.querySelectorAll('.chip');
-  const rows=[...document.querySelectorAll('#cases tbody tr')];
-  chips.forEach(c=>c.addEventListener('click',()=>{{chips.forEach(x=>x.setAttribute('aria-pressed','false'));c.setAttribute('aria-pressed','true');const f=c.dataset.fmt;rows.forEach(r=>{{r.hidden=!(f==='all'||r.dataset.fmt===f)}})}}));
+  const filter=(chipSel,itemSel)=>{{const chips=document.querySelectorAll(chipSel);const items=[...document.querySelectorAll(itemSel)];chips.forEach(c=>c.addEventListener('click',()=>{{chips.forEach(x=>x.setAttribute('aria-pressed','false'));c.setAttribute('aria-pressed','true');const f=c.dataset.fmt;items.forEach(r=>{{r.hidden=!(f==='all'||r.dataset.fmt===f)}})}}))}};
+  filter('#case-chips .chip','#cases tbody tr');
+  filter('#sample-chips .chip','.samples .sample');
   const table=document.querySelector('#cases table');const tbody=table.querySelector('tbody');
   const num=s=>parseFloat(String(s).replace(/[^0-9.\\-]/g,''));
   let sortKey='iou',asc=false;
