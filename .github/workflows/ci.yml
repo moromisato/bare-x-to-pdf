@@ -12,6 +12,8 @@ jobs:
     name: Lint
     steps:
       - uses: holepunchto/actions/node-base@v1
+        with:
+          force-install: true
       - run: npm run lint
   test:
     strategy:
@@ -25,6 +27,8 @@ jobs:
     name: Test / ${{ matrix.os }}
     steps:
       - uses: holepunchto/actions/bare-base@v1
+        with:
+          force-install: true
       - uses: lukka/get-cmake@latest
       - run: rustup toolchain install 1.98.1 --profile minimal
         shell: bash
@@ -34,5 +38,4 @@ jobs:
       - uses: holepunchto/actions/compile-prebuilds@v1
         with:
           prefix: npm/${{ steps.host.outputs.target }}/prebuilds
-      - run: bare scripts/link-host.js
       - run: npm test

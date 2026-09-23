@@ -84,6 +84,13 @@ Return every supported pair as `{ from, to }`.
 
 Path to the bundled fonts directory.
 
+## Development
+
+The platform packages in `npm/` are npm workspaces, and each declares its own `os` and `cpu`
+so that installs download only one. In a checkout, install with `npm install --force` so npm
+links all of them, then build the host prebuild with `npm run prebuild` and run `npm test`.
+The fidelity benchmark in `bench/` has its own dependencies: `cd bench && npm install`.
+
 ## Releases
 
 `.github/workflows/publish.yml` runs when a `v*` tag is pushed. Tag the commit whose

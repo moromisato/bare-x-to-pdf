@@ -4,19 +4,23 @@ on:
     tags:
       - v*
 permissions:
-  id-token: write
-  contents: write
+  contents: read
 jobs:
   prebuild:
     uses: ./.github/workflows/prebuild.yml
   publish:
     runs-on: ubuntu-latest
     needs: prebuild
+    permissions:
+      id-token: write
+      contents: write
     environment:
       name: npm
     name: Publish
     steps:
       - uses: holepunchto/actions/node-base@v1
+        with:
+          force-install: true
       - uses: holepunchto/actions/download-prebuilds@v1
         with:
           prefix: npm
