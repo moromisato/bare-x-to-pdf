@@ -638,7 +638,7 @@ impl Emitter<'_> {
     }
 
     fn text_expr_line(&self, text: &str, props: &RunProps, spacing: LineSpacing, empty_line: bool) -> String {
-        let text = &if self.table_depth.get() > 0 { hyphen_break_opportunities(text) } else { std::borrow::Cow::Borrowed(text) };
+        let text = &if self.table_depth.get() > 0 && !self.doc.cell_metrics { hyphen_break_opportunities(text) } else { std::borrow::Cow::Borrowed(text) };
         if props.caps == Some(true) {
             return self.text_expr_content_line(&typst_str(&text.to_uppercase()), props, spacing, empty_line);
         }

@@ -19,8 +19,9 @@ FORMAT_NAMES = {
     "fodt": "Flat OpenDocument (FODT)",
     "pptx": "PowerPoint (PPTX)",
     "xlsx": "Excel (XLSX)",
+    "xls": "Excel 97 (XLS)",
 }
-FORMAT_ORDER = ["docx", "doc", "odt", "fodt", "pptx", "xlsx"]
+FORMAT_ORDER = ["docx", "doc", "odt", "fodt", "pptx", "xlsx", "xls"]
 TIMING_FILES = [
     "sdk-sample.docx",
     "minimal-table-unicode.docx",

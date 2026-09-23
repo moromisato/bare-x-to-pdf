@@ -17,7 +17,9 @@ const CONVERSIONS = {
   xlsx: ['pdf'],
   xlsm: ['pdf'],
   xltx: ['pdf'],
-  xltm: ['pdf']
+  xltm: ['pdf'],
+  xls: ['pdf'],
+  xlt: ['pdf']
 }
 
 const ZIP_MARKERS = [
@@ -25,6 +27,12 @@ const ZIP_MARKERS = [
   { format: 'docx', marker: 'word/' },
   { format: 'pptx', marker: 'ppt/' },
   { format: 'xlsx', marker: 'xl/' }
+]
+
+const COMPOUND_STREAMS = [
+  { format: 'doc', name: 'WordDocument' },
+  { format: 'xls', name: 'Workbook' },
+  { format: 'xls', name: 'Book' }
 ]
 
 const SIGNATURES = [
@@ -38,6 +46,7 @@ function detect(input) {
     if (bytes.length < magic.length) continue
     if (!magic.every((b, i) => bytes[i] === b)) continue
     if (format === 'docx') return detectZip(bytes) || 'docx'
+    if (format === 'doc') return detectCompound(bytes) || 'doc'
     return format
   }
   const head = Buffer.from(
@@ -53,6 +62,14 @@ function detectZip(bytes) {
   const names = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1')
   for (const { format, marker } of ZIP_MARKERS) {
     if (names.includes(marker)) return format
+  }
+  return null
+}
+
+function detectCompound(bytes) {
+  const raw = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  for (const { format, name } of COMPOUND_STREAMS) {
+    if (raw.includes(Buffer.from(name + '\0', 'utf16le'))) return format
   }
   return null
 }

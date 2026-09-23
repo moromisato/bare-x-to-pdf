@@ -13,6 +13,7 @@ A native addon with a Rust engine that lays pages out with
 | OpenDocument Text | `.odt`, `.ott`, `.fodt`            |
 | PowerPoint        | `.pptx`                            |
 | Excel             | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
+| Excel 97–2003     | `.xls`, `.xlt`                     |
 
 ## Install
 
