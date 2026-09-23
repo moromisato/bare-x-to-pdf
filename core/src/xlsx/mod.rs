@@ -1,5 +1,6 @@
 mod biff;
 mod biff_art;
+mod biff_cf;
 pub(crate) mod format;
 mod formula;
 
@@ -321,6 +322,7 @@ struct Dxf {
 #[derive(Debug, Clone)]
 struct CondRule {
     range: (u32, u32, u32, u32),
+    origin: (u32, u32),
     priority: i64,
     dxf: usize,
     kind: String,
@@ -348,7 +350,7 @@ fn conditional_dxf<'a>(sheet: &Sheet, styles: &'a Styles, row: u32, col: u32, va
     rules.sort_by_key(|r| r.priority);
     let cells = |r: u32, c: u32| cell_value(sheet, r, c);
     for rule in rules {
-        let ctx = formula::Context { cell: &cells, row_offset: row as i64 - rule.range.0 as i64, col_offset: col as i64 - rule.range.1 as i64 };
+        let ctx = formula::Context { cell: &cells, row_offset: row as i64 - rule.origin.0 as i64, col_offset: col as i64 - rule.origin.1 as i64 };
         let operand = |i: usize| rule.formulas.get(i).and_then(|f| formula::evaluate(f, &ctx));
         let number = |v: &formula::Value| match v {
             formula::Value::Num(n) => Some(*n),
@@ -935,10 +937,12 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
                         let operator = rule.attr("operator").unwrap_or("").to_string();
                         let kind = rule.attr("type").unwrap_or("").to_string();
                         let text = rule.attr("text").map(str::to_owned);
+                        let origin = ranges.first().map_or((1, 1), |r| (r.0, r.1));
                         ranges
                             .iter()
                             .map(|range| CondRule {
                                 range: *range,
+                                origin,
                                 priority,
                                 dxf,
                                 kind: kind.clone(),

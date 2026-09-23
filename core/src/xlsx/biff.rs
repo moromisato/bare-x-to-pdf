@@ -1,7 +1,8 @@
 use super::biff_art;
+use super::biff_cf;
 use super::{
     auto_row_heights, border_side, column_width, digit_width, has_border, indexed_color, paper_size, sheet_extent, workbook_defaults,
-    workbook_document, CellData, CellValue, Font, PageOptions, RowData, Sheet, SheetDrawing, Styles, Xf,
+    workbook_document, CellData, CellValue, Dxf, Font, PageOptions, RowData, Sheet, SheetDrawing, Styles, Xf,
 };
 use crate::error::Error;
 use crate::model::*;
@@ -53,6 +54,8 @@ const TXO: u16 = 0x01B6;
 const NOTE: u16 = 0x001C;
 const MSODRAWINGGROUP: u16 = 0x00EB;
 const MSODRAWING: u16 = 0x00EC;
+const CONDFMT: u16 = 0x01B0;
+const CF: u16 = 0x01B1;
 
 const BORDER_STYLES: [&str; 14] = [
     "none",
@@ -227,6 +230,7 @@ struct SheetEntry {
 }
 
 struct Globals {
+    palette: Palette,
     styles: Styles,
     blips: Vec<Option<ImageData>>,
     strings: Vec<Vec<(String, RunProps)>>,
@@ -264,7 +268,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     if records.iter().any(|r| r.kind == FILEPASS) {
         return Err(Error::new("encrypted xls workbooks are not supported"));
     }
-    let globals = read_globals(&records);
+    let mut globals = read_globals(&records);
     let by_offset: HashMap<usize, usize> = records.iter().enumerate().map(|(i, r)| (r.offset, i)).collect();
 
     let mut parsed = Vec::new();
@@ -273,7 +277,12 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
             continue;
         }
         let Some(&start) = by_offset.get(&entry.offset) else { continue };
-        let mut sheet = read_sheet(&records[start..], &globals, globals.print_areas.get(&index).copied());
+        let (mut sheet, dxfs) = read_sheet(&records[start..], &globals, globals.print_areas.get(&index).copied());
+        let base = globals.styles.dxfs.len();
+        for rule in &mut sheet.conditional {
+            rule.dxf += base;
+        }
+        globals.styles.dxfs.extend(dxfs);
         auto_row_heights(&mut sheet, &globals.styles);
         parsed.push((entry.name.clone(), sheet));
     }
@@ -358,6 +367,7 @@ fn read_globals(records: &[Record]) -> Globals {
         xfs.push(Xf { v_align: VAlign::Bottom, ..Xf::default() });
     }
     Globals {
+        palette,
         blips: biff_art::blip_store(&drawing_group),
         styles: Styles { fonts, xfs, num_fmts, dxfs: Vec::new() },
         strings,
@@ -524,7 +534,7 @@ impl SheetBuilder<'_> {
     }
 }
 
-fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u32, u32, u32)>) -> Sheet {
+fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u32, u32, u32)>) -> (Sheet, Vec<Dxf>) {
     let mut builder = SheetBuilder { globals, rows: BTreeMap::new(), max_row: 0, max_col: 0 };
     let mut col_specs: Vec<(u32, u32, f64, bool)> = Vec::new();
     let mut default_col_chars = 8.43;
@@ -549,6 +559,21 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
     let mut texts: HashMap<u16, String> = HashMap::new();
     let mut note_cells: Vec<(u32, u32, u16)> = Vec::new();
     let mut drawing: Vec<u8> = Vec::new();
+    let mut conditional = Vec::new();
+    let mut dxfs: Vec<Dxf> = Vec::new();
+    let mut condition_group: Option<(&[u8], Vec<&[u8]>)> = None;
+    let mut priority = 0;
+    let palette = |i: usize| globals.palette.color(i);
+    let mut flush = |group: &mut Option<(&[u8], Vec<&[u8]>)>, conditional: &mut Vec<_>, dxfs: &mut Vec<Dxf>| {
+        if let Some((head, rules)) = group.take() {
+            for condition in biff_cf::conditions(head, &rules, &palette, &mut priority) {
+                let mut rule = condition.rule;
+                rule.dxf = dxfs.len();
+                dxfs.push(condition.dxf);
+                conditional.push(rule);
+            }
+        }
+    };
 
     for record in records {
         match record.kind {
@@ -568,6 +593,20 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         }
         let data = record.data();
         let (row, col, style) = (le16(data, 0), le16(data, 2), le16(data, 4));
+        match record.kind {
+            CONDFMT => {
+                flush(&mut condition_group, &mut conditional, &mut dxfs);
+                condition_group = Some((data, Vec::new()));
+                continue;
+            }
+            CF => {
+                if let Some((_, rules)) = condition_group.as_mut() {
+                    rules.push(data);
+                }
+                continue;
+            }
+            _ => flush(&mut condition_group, &mut conditional, &mut dxfs),
+        }
         match record.kind {
             DEFCOLWIDTH => {
                 let font_twips = globals.styles.font(0).size.unwrap_or(10.0) * 20.0;
@@ -735,6 +774,7 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         }
     }
 
+    flush(&mut condition_group, &mut conditional, &mut dxfs);
     let default_col_chars = standard_width.unwrap_or(default_col_chars);
     let styles = &globals.styles;
     let digit = digit_width(styles.font(0));
@@ -771,9 +811,9 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         .into_iter()
         .filter_map(|(r, c, id)| texts.get(&id).map(|t| ((r, c), t.clone())))
         .collect();
-    Sheet {
+    let sheet = Sheet {
         notes,
-        conditional: Vec::new(),
+        conditional,
         drawings,
         col_widths: extent.col_widths,
         rows: builder.rows,
@@ -786,7 +826,8 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         last_col: extent.last_col,
         row_breaks,
         col_breaks,
-    }
+    };
+    (sheet, dxfs)
 }
 
 fn calc_body_edge(code: &str, default_size: f64, margin: f64, hf_margin: f64) -> f64 {
