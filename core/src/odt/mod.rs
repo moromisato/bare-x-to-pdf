@@ -1,4 +1,4 @@
-mod styles;
+pub(crate) mod styles;
 
 use crate::error::Error;
 use crate::model::*;

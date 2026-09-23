@@ -121,6 +121,8 @@ pub struct Styles {
     hatches: HashMap<String, (Color, f64, f64)>,
     fill_images: HashMap<String, String>,
     opacities: HashMap<String, f64>,
+    defaults: HashMap<String, Element>,
+    pub page_layout_elements: HashMap<String, Element>,
 }
 
 impl Styles {
@@ -156,6 +158,9 @@ impl Styles {
                 for el in container.elements() {
                     match el.name.as_str() {
                         "default-style" => {
+                            if let Some(family) = el.attr("family") {
+                                out.defaults.insert(family.to_string(), el.clone());
+                            }
                             if el.attr("family") == Some("paragraph") {
                                 let style = parse_style(el, &fonts);
                                 out.default_paragraph.ppr.merge(&style.ppr);
@@ -185,6 +190,7 @@ impl Styles {
                         }
                         "page-layout" => {
                             if let Some(name) = el.attr("name") {
+                                out.page_layout_elements.insert(name.to_string(), el.clone());
                                 out.page_layouts.insert(name.to_string(), parse_page_layout(el));
                             }
                         }
@@ -450,6 +456,18 @@ impl Styles {
         }
         names.reverse();
         names
+    }
+
+    pub fn elements(&self, family: &str, name: &str) -> Vec<&Element> {
+        self.chain_names(family, name).iter().filter_map(|n| self.raw.get(&format!("{family}:{n}"))).collect()
+    }
+
+    pub fn default_style(&self, family: &str) -> Option<&Element> {
+        self.defaults.get(family)
+    }
+
+    pub fn run_props(&self, text_properties: &Element) -> RunProps {
+        parse_text_properties(text_properties, &self.fonts).0
     }
 
     pub fn section_columns(&self, name: &str) -> Option<ColumnsBlock> {
