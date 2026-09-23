@@ -2,9 +2,9 @@ const test = require('brittle')
 const fs = require('bare-fs')
 const path = require('bare-path')
 const pdfium = require('bare-pdfium')
-const converter = require('.')
+const converter = require('..')
 
-const fixture = (name) => fs.readFileSync(path.join(__dirname, 'test', 'fixtures', name))
+const fixture = (name) => fs.readFileSync(path.join(__dirname, 'fixtures', name))
 
 test('detects the input format from magic bytes', (t) => {
   t.is(converter.detect(fixture('minimal-table-unicode.docx')), 'docx')
@@ -67,7 +67,7 @@ test('converts a styled docx to a letter sized pdf', (t) => {
 })
 
 test('converts a pptx deck to one pdf page per slide', (t) => {
-  const pptx = fs.readFileSync(path.join(__dirname, 'bench', 'corpus', 'sdk-sample.pptx'))
+  const pptx = fs.readFileSync(path.join(__dirname, '..', 'bench', 'corpus', 'sdk-sample.pptx'))
   t.is(converter.detect(pptx), 'pptx')
   const pdf = converter.convert(pptx, { to: 'pdf' })
   const doc = pdfium.open(pdf)
@@ -100,13 +100,13 @@ test('converts markdown to pdf when the format is given', (t) => {
 })
 
 test('converts OpenDocument spreadsheets and presentations to pdf', (t) => {
-  const ods = fs.readFileSync(path.join(__dirname, 'bench', 'corpus', 'odf-cond-format.ods'))
+  const ods = fs.readFileSync(path.join(__dirname, '..', 'bench', 'corpus', 'odf-cond-format.ods'))
   t.is(converter.detect(ods), 'ods')
   const sheet = pdfium.open(converter.convert(ods, { to: 'pdf' }))
   t.is(sheet.pageCount(), 1)
   t.ok(sheet.extractText(0).includes('Epsilon'))
   sheet.close()
-  const odp = fs.readFileSync(path.join(__dirname, 'bench', 'corpus', 'odf-sdk-sample.odp'))
+  const odp = fs.readFileSync(path.join(__dirname, '..', 'bench', 'corpus', 'odf-sdk-sample.odp'))
   t.is(converter.detect(odp), 'odp')
   const slides = pdfium.open(converter.convert(odp, { to: 'pdf' }))
   t.is(slides.pageCount(), 4)

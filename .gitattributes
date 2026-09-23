@@ -4,6 +4,10 @@
 *.pptx binary
 *.xlsx binary
 *.doc binary
+*.xls binary
+*.odt binary
+*.ods binary
+*.odp binary
 *.ttf binary
 *.otf binary
 *.png binary

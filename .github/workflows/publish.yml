@@ -1,61 +1,77 @@
 name: Publish
-
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: npm dist-tag to publish under
-        default: beta
-
+  push:
+    tags:
+      - v*
 permissions:
-  contents: read
-
+  id-token: write
+  contents: write
 jobs:
   prebuild:
     uses: ./.github/workflows/prebuild.yml
-
   publish:
     runs-on: ubuntu-latest
     needs: prebuild
+    environment:
+      name: npm
+    name: Publish
     steps:
-      - uses: holepunchto/actions/bare-base@v1
-        with:
-          registry-url: https://registry.npmjs.org
-          node-auth-token: ${{ secrets.NPM_TOKEN }}
+      - uses: holepunchto/actions/node-base@v1
       - uses: holepunchto/actions/download-prebuilds@v1
         with:
           prefix: npm
+      - run: npm install --global npm@^11.5.1
+      - id: disttag
+        run: |
+          pushed="${GITHUB_REF_NAME#v}"
+          version="$(node -p 'require("./package.json").version')"
+          if [ "$pushed" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          name="$(node -p 'require("./package.json").name')"
+          current="$(npm view "$name@latest" version 2>/dev/null || echo 0.0.0)"
+          newest="$(printf '%s\n%s\n' "$current" "$pushed" | sort -V | tail -1)"
+          if [ "$newest" = "$pushed" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=release-${pushed%.*}" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to npm
         run: |
-          tag="${{ inputs.tag || 'beta' }}"
-          version="$(node -p "require('./package.json').version")"
+          version="$(node -p 'require("./package.json").version')"
+          root="$(node -p 'require("./package.json").name')"
           publish() {
             local dir="$1" name attempt=1
             name="$(node -p "require('./$dir/package.json').name")"
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version is already on the registry"
-            else
-              until (cd "$dir" && npm publish --ignore-scripts --tag "$tag"); do
-                if [ "$attempt" -ge 5 ]; then
-                  echo "::error::$name@$version did not publish after $attempt attempts"
-                  return 1
-                fi
-                attempt=$((attempt + 1))
-                sleep 120
-              done
+              return 0
             fi
-            npm dist-tag add "$name@$version" latest || true
+            until (cd "$dir" && npm publish --ignore-scripts --tag "$TAG"); do
+              if [ "$attempt" -ge 5 ]; then
+                echo "::error::$name@$version did not publish after $attempt attempts"
+                return 1
+              fi
+              attempt=$((attempt + 1))
+              sleep 120
+            done
           }
           failed=""
-          for dir in npm/*/; do
+          for name in $(node -p 'Object.keys(require("./package.json").optionalDependencies).join(" ")'); do
+            dir="npm/${name#"$root"-}"
+            if [ -z "$(ls -A "$dir/prebuilds" 2>/dev/null)" ]; then
+              echo "::error::$dir has no prebuild"
+              failed="$failed $dir"
+              continue
+            fi
             publish "$dir" || failed="$failed $dir"
           done
-          publish . || failed="$failed ."
           if [ -n "$failed" ]; then
             echo "::error::failed to publish:$failed"
             exit 1
           fi
+          publish .
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ steps.disttag.outputs.tag }}
+      - uses: holepunchto/actions/create-release@v1

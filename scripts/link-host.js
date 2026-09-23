@@ -7,7 +7,7 @@ const name = `${require('../package.json').name}-${target}`
 const link = path.join(root, 'node_modules', name)
 
 try {
-  fs.unlinkSync(link)
+  fs.rmSync(link, { recursive: true })
 } catch {}
 
 fs.symlinkSync(path.join('..', 'npm', target), link, 'dir')

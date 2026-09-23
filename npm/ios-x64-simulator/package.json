@@ -20,14 +20,13 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/moromisato/bare-x-to-pdf.git"
+    "url": "https://github.com/tetherto/bare-x-to-pdf.git"
   },
   "bugs": {
-    "url": "https://github.com/moromisato/bare-x-to-pdf/issues"
+    "url": "https://github.com/tetherto/bare-x-to-pdf/issues"
   },
-  "homepage": "https://github.com/moromisato/bare-x-to-pdf#readme",
+  "homepage": "https://github.com/tetherto/bare-x-to-pdf",
   "publishConfig": {
-    "access": "public",
-    "tag": "beta"
+    "access": "public"
   }
 }

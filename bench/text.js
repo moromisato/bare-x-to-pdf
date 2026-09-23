@@ -39,7 +39,10 @@ for (const file of files) {
   results.push(row)
 }
 
-fs.writeFileSync(path.join(outDir, 'text-report.json'), JSON.stringify({ date: new Date().toISOString(), results }, null, 2))
+fs.writeFileSync(
+  path.join(outDir, 'text-report.json'),
+  JSON.stringify({ date: new Date().toISOString(), results }, null, 2)
+)
 print(results)
 
 function extract(bytes) {
@@ -56,7 +59,11 @@ function extract(bytes) {
 }
 
 function engineRow(source, extracted) {
-  const row = { words: tokens(extracted.text).length, ms: extracted.ms, unmappable: unmappable(extracted.text) }
+  const row = {
+    words: tokens(extracted.text).length,
+    ms: extracted.ms,
+    unmappable: unmappable(extracted.text)
+  }
   if (source !== null) Object.assign(row, compare(source, extracted.text))
   return row
 }
@@ -83,9 +90,13 @@ function print(rows) {
   console.log(line(cols.map(([h]) => h)))
   console.log(line(widths.map((w) => '-'.repeat(w))))
   for (const row of table) console.log(line(row))
-  const scored = rows.filter((r) => r.sourceWords > 0 && r.ours?.recall !== undefined && r.reference?.recall !== undefined)
+  const scored = rows.filter(
+    (r) => r.sourceWords > 0 && r.ours?.recall !== undefined && r.reference?.recall !== undefined
+  )
   const mean = (f) => scored.reduce((a, r) => a + f(r), 0) / Math.max(1, scored.length)
-  console.log(`\n${scored.length} cases with source text and both engines: recall ours ${pct(mean((r) => r.ours.recall))} / ref ${pct(mean((r) => r.reference.recall))}, precision ours ${pct(mean((r) => r.ours.precision))} / ref ${pct(mean((r) => r.reference.precision))}, order ours ${pct(mean((r) => r.ours.order))} / ref ${pct(mean((r) => r.reference.order))}`)
+  console.log(
+    `\n${scored.length} cases with source text and both engines: recall ours ${pct(mean((r) => r.ours.recall))} / ref ${pct(mean((r) => r.reference.recall))}, precision ours ${pct(mean((r) => r.ours.precision))} / ref ${pct(mean((r) => r.reference.precision))}, order ours ${pct(mean((r) => r.ours.order))} / ref ${pct(mean((r) => r.reference.order))}`
+  )
 }
 
 function parseArgs(argv) {
