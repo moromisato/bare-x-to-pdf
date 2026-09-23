@@ -1147,7 +1147,7 @@ impl Emitter<'_> {
                                 })
                                 .collect();
                             format!(
-                                "box(width: {w}, height: {h}, place(top + left, curve(fill: {fill}, stroke: {stroke}, {})) + place(top + left, block(width: {w}, height: {height}, {inset}, {body})))",
+                                "box(width: {w}, height: {h}, place(top + left, curve(fill: {fill}, fill-rule: \"even-odd\", stroke: {stroke}, {})) + place(top + left, block(width: {w}, height: {height}, {inset}, {body})))",
                                 parts.join(", ")
                             )
                         }

@@ -288,9 +288,10 @@ pub fn enhanced_path(geometry: &Element, width_pt: f64, height_pt: f64) -> Optio
             }
             'G' => {
                 let Some(v) = take(&mut i, 4) else { i += 1; continue };
-                let (rx, ry, st, sw) = (v[0], v[1], v[2].to_radians(), v[3].to_radians());
+                let (rx, ry, st) = (v[0], v[1], v[2].to_radians());
+                let sw = v[3].to_radians().clamp(-std::f64::consts::TAU, std::f64::consts::TAU);
                 let center = (current.0 - rx * st.cos(), current.1 - ry * st.sin());
-                let steps = ((sw.abs() / (std::f64::consts::PI / 8.0)).ceil() as usize).max(1);
+                let steps = ((sw.abs() / (std::f64::consts::PI / 8.0)).ceil() as usize).clamp(1, 64);
                 for k in 1..=steps {
                     let a = st + sw * k as f64 / steps as f64;
                     let point = (center.0 + rx * a.cos(), center.1 + ry * a.sin());
@@ -299,12 +300,56 @@ pub fn enhanced_path(geometry: &Element, width_pt: f64, height_pt: f64) -> Optio
                     current = point;
                 }
             }
+            'A' | 'B' | 'W' | 'V' => {
+                let Some(v) = take(&mut i, 8) else { i += 1; continue };
+                let (cx, cy) = ((v[0] + v[2]) / 2.0, (v[1] + v[3]) / 2.0);
+                let (rx, ry) = (((v[2] - v[0]) / 2.0).abs().max(1e-9), ((v[3] - v[1]) / 2.0).abs().max(1e-9));
+                let a0 = ((v[5] - cy) / ry).atan2((v[4] - cx) / rx);
+                let a1 = ((v[7] - cy) / ry).atan2((v[6] - cx) / rx);
+                let clockwise = matches!(command, 'W' | 'V');
+                let mut sweep = a1 - a0;
+                if clockwise {
+                    if sweep <= 0.0 {
+                        sweep += std::f64::consts::TAU;
+                    }
+                } else if sweep >= 0.0 {
+                    sweep -= std::f64::consts::TAU;
+                }
+                let steps = ((sweep.abs() / (std::f64::consts::PI / 16.0)).ceil() as usize).clamp(2, 64);
+                for k in 0..=steps {
+                    let a = a0 + sweep * k as f64 / steps as f64;
+                    let point = (cx + rx * a.cos(), cy + ry * a.sin());
+                    let p = norm(point.0, point.1);
+                    if k == 0 && matches!(command, 'B' | 'V') {
+                        out.push(PathCommand::Move(p.0, p.1));
+                        start = point;
+                    } else {
+                        out.push(PathCommand::Line(p.0, p.1));
+                    }
+                    current = point;
+                }
+            }
+            'X' | 'Y' => {
+                let Some(v) = take(&mut i, 2) else { i += 1; continue };
+                let k = 0.5523;
+                let (x, y) = (v[0], v[1]);
+                let (c1, c2) = if command == 'X' {
+                    ((current.0 + (x - current.0) * k, current.1), (x, y - (y - current.1) * k))
+                } else {
+                    ((current.0, current.1 + (y - current.1) * k), (x - (x - current.0) * k, y))
+                };
+                let (a, b, c) = (norm(c1.0, c1.1), norm(c2.0, c2.1), norm(x, y));
+                out.push(PathCommand::Cubic(a.0, a.1, b.0, b.1, c.0, c.1));
+                current = (x, y);
+                command = if command == 'X' { 'Y' } else { 'X' };
+            }
             'U' | 'T' => {
                 let Some(v) = take(&mut i, 6) else { i += 1; continue };
                 let (cx, cy, rx, ry) = (v[0], v[1], v[2], v[3]);
                 let (t0, t1) = (v[4].to_radians(), v[5].to_radians());
-                let sweep = if t1 <= t0 { t1 + std::f64::consts::TAU - t0 } else { t1 - t0 };
-                let steps = ((sweep / (std::f64::consts::PI / 16.0)).ceil() as usize).max(2);
+                let sweep = (if t1 <= t0 { t1 + std::f64::consts::TAU - t0 } else { t1 - t0 }).rem_euclid(std::f64::consts::TAU);
+                let sweep = if sweep == 0.0 { std::f64::consts::TAU } else { sweep };
+                let steps = ((sweep / (std::f64::consts::PI / 16.0)).ceil() as usize).clamp(2, 64);
                 for k in 0..=steps {
                     let a = t0 + sweep * k as f64 / steps as f64;
                     let point = (cx + rx * a.cos(), cy - ry * a.sin());
@@ -321,5 +366,118 @@ pub fn enhanced_path(geometry: &Element, width_pt: f64, height_pt: f64) -> Optio
             _ => i += 1,
         }
     }
+    out.truncate(4096);
     (!out.is_empty()).then_some(out)
+}
+
+pub fn svg_path(d: &str, norm: &dyn Fn(f64, f64) -> (f64, f64)) -> Vec<PathCommand> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut number = String::new();
+    let flush = |number: &mut String, tokens: &mut Vec<String>| {
+        if !number.is_empty() {
+            tokens.push(std::mem::take(number));
+        }
+    };
+    for ch in d.chars() {
+        if ch.is_ascii_alphabetic() && ch != 'e' && ch != 'E' {
+            flush(&mut number, &mut tokens);
+            tokens.push(ch.to_string());
+        } else if ch == '-' && !number.is_empty() && !number.ends_with(['e', 'E']) {
+            flush(&mut number, &mut tokens);
+            number.push(ch);
+        } else if ch == ',' || ch.is_whitespace() {
+            flush(&mut number, &mut tokens);
+        } else if ch == '.' && number.contains('.') {
+            flush(&mut number, &mut tokens);
+            number.push(ch);
+        } else {
+            number.push(ch);
+        }
+    }
+    flush(&mut number, &mut tokens);
+    let mut out = Vec::new();
+    let (mut cur, mut start, mut control) = ((0.0f64, 0.0f64), (0.0f64, 0.0f64), None::<(f64, f64)>);
+    let mut command = 'M';
+    let mut i = 0;
+    let num = |i: &mut usize| -> Option<f64> {
+        let v = tokens.get(*i)?.parse::<f64>().ok()?;
+        *i += 1;
+        Some(v)
+    };
+    while i < tokens.len() && out.len() < 4096 {
+        if tokens[i].len() == 1 && tokens[i].chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+            command = tokens[i].chars().next().unwrap();
+            i += 1;
+            if command.eq_ignore_ascii_case(&'z') {
+                out.push(PathCommand::Close);
+                cur = start;
+                control = None;
+                continue;
+            }
+        }
+        let relative = command.is_ascii_lowercase();
+        let base = if relative { cur } else { (0.0, 0.0) };
+        let before = i;
+        match command.to_ascii_uppercase() {
+            'M' | 'L' => {
+                let (Some(x), Some(y)) = (num(&mut i), num(&mut i)) else { break };
+                cur = (base.0 + x, base.1 + y);
+                let p = norm(cur.0, cur.1);
+                if command.eq_ignore_ascii_case(&'m') {
+                    out.push(PathCommand::Move(p.0, p.1));
+                    start = cur;
+                    command = if relative { 'l' } else { 'L' };
+                } else {
+                    out.push(PathCommand::Line(p.0, p.1));
+                }
+                control = None;
+            }
+            'H' => {
+                let Some(x) = num(&mut i) else { break };
+                cur.0 = if relative { cur.0 + x } else { x };
+                let p = norm(cur.0, cur.1);
+                out.push(PathCommand::Line(p.0, p.1));
+                control = None;
+            }
+            'V' => {
+                let Some(y) = num(&mut i) else { break };
+                cur.1 = if relative { cur.1 + y } else { y };
+                let p = norm(cur.0, cur.1);
+                out.push(PathCommand::Line(p.0, p.1));
+                control = None;
+            }
+            'C' | 'S' => {
+                let c1 = if command.eq_ignore_ascii_case(&'s') {
+                    control.map(|c| (2.0 * cur.0 - c.0, 2.0 * cur.1 - c.1)).unwrap_or(cur)
+                } else {
+                    let (Some(x), Some(y)) = (num(&mut i), num(&mut i)) else { break };
+                    (base.0 + x, base.1 + y)
+                };
+                let (Some(x2), Some(y2), Some(x), Some(y)) = (num(&mut i), num(&mut i), num(&mut i), num(&mut i)) else { break };
+                let c2 = (base.0 + x2, base.1 + y2);
+                cur = (base.0 + x, base.1 + y);
+                let (a, b, c) = (norm(c1.0, c1.1), norm(c2.0, c2.1), norm(cur.0, cur.1));
+                out.push(PathCommand::Cubic(a.0, a.1, b.0, b.1, c.0, c.1));
+                control = Some(c2);
+            }
+            'Q' | 'T' => {
+                let c1 = if command.eq_ignore_ascii_case(&'t') {
+                    control.map(|c| (2.0 * cur.0 - c.0, 2.0 * cur.1 - c.1)).unwrap_or(cur)
+                } else {
+                    let (Some(x), Some(y)) = (num(&mut i), num(&mut i)) else { break };
+                    (base.0 + x, base.1 + y)
+                };
+                let (Some(x), Some(y)) = (num(&mut i), num(&mut i)) else { break };
+                cur = (base.0 + x, base.1 + y);
+                let (a, c) = (norm(c1.0, c1.1), norm(cur.0, cur.1));
+                out.push(PathCommand::Quad(a.0, a.1, c.0, c.1));
+                control = Some(c1);
+            }
+            _ => i += 1,
+        }
+        if i == before {
+            i += 1;
+        }
+    }
+    out
 }

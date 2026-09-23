@@ -318,7 +318,8 @@ impl Reader<'_> {
         let list_level = list_style_name
             .as_deref()
             .and_then(|name| self.styles.list_level(name, level));
-        let frame_indents = self.frame_base.borrow().is_some() && props.indent_left.is_some();
+        let frame_indents = self.frame_base.borrow().is_some()
+            && style_name.is_some_and(|n| self.styles.family_text("paragraph", n, 12.0).0.indent_left.is_some());
         if frame_indents {
             let first = props.indent_first_line.unwrap_or(0.0);
             props.indent_hanging = Some((-first).max(0.0));
@@ -361,7 +362,7 @@ impl Reader<'_> {
                             let size = p.size;
                             p.merge(rp);
                             if in_frame {
-                                p.size = size;
+                                p.size = size.map(|s| s * lvl.size_percent.unwrap_or(1.0));
                             }
                         }
                         p
@@ -626,8 +627,7 @@ impl Reader<'_> {
             row.height = height;
             row.exact_height = exact;
         }
-        let mut pending_vmerge: Vec<usize> = Vec::new();
-        let _ = &mut pending_vmerge;
+        let mut covered_by_span = 0usize;
         for tc in tr.elements() {
             match tc.name.as_str() {
                 "table-cell" => {
@@ -652,6 +652,7 @@ impl Reader<'_> {
                         if tc.attr("number-rows-spanned").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1) > 1 {
                             cell.vertical_merge = Some(VerticalMerge::Restart);
                         }
+                        covered_by_span += cell.span.saturating_sub(1);
                         if let Some(name) = style {
                             let props = self.styles.cell(name);
                             cell.borders = props.borders;
@@ -665,6 +666,10 @@ impl Reader<'_> {
                 "covered-table-cell" => {
                     let repeat = tc.attr("number-columns-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).min(64);
                     for _ in 0..repeat {
+                        if covered_by_span > 0 {
+                            covered_by_span -= 1;
+                            continue;
+                        }
                         row.cells.push(Cell {
                             span: 1,
                             vertical_merge: Some(VerticalMerge::Continue),

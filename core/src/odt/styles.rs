@@ -90,6 +90,7 @@ pub struct ListLevel {
     pub suffix: ListSuffix,
     pub rpr: Option<RunProps>,
     pub tab_pos: Option<f64>,
+    pub size_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +373,14 @@ impl Styles {
     }
 
     pub fn graphic_family(&self, family: &str, name: &str) -> GraphicProps {
+        self.graphic_chain(family, name, false)
+    }
+
+    pub fn graphic_with_default(&self, family: &str, name: &str) -> GraphicProps {
+        self.graphic_chain(family, name, true)
+    }
+
+    fn graphic_chain(&self, family: &str, name: &str, with_default: bool) -> GraphicProps {
         let mut props = GraphicProps {
             wrap: Wrap::TopAndBottom,
             h_pos: "from-left".into(),
@@ -381,8 +390,15 @@ impl Styles {
             opacity: 1.0,
             ..GraphicProps::default()
         };
-        for style_name in self.chain_names(family, name) {
-            let Some(el) = self.raw.get(&format!("{family}:{style_name}")).or_else(|| self.raw_graphic(&style_name)) else { continue };
+        let default = if with_default { self.defaults.get("graphic") } else { None };
+        let chain: Vec<&Element> = default
+            .into_iter()
+            .chain(self.chain_names(family, name).iter().filter_map(|n| self.raw.get(&format!("{family}:{n}")).or_else(|| self.raw_graphic(n))))
+            .collect();
+        if with_default {
+            props.stroke = Some((0.5, Color(0, 0, 0)));
+        }
+        for el in chain {
             let Some(g) = el.child("graphic-properties") else { continue };
             if let Some(opacity) = g.attr("opacity").and_then(percent) {
                 props.opacity = opacity;
@@ -443,7 +459,16 @@ impl Styles {
                     let color = g.attr("stroke-color").and_then(Color::parse_hex).unwrap_or(Color(0, 0, 0));
                     props.stroke = Some((width, color));
                 }
-                None => {}
+                None => {
+                    if let Some((width, color)) = props.stroke.as_mut() {
+                        if let Some(w) = g.attr("stroke-width").and_then(length) {
+                            *width = w.max(0.5);
+                        }
+                        if let Some(c) = g.attr("stroke-color").and_then(Color::parse_hex) {
+                            *color = c;
+                        }
+                    }
+                }
             }
             if let Some(border) = g.attr("border").filter(|b| *b != "none") {
                 if let Some((w, c, _)) = parse_border(border) {
@@ -885,8 +910,10 @@ fn parse_list(el: &Element, fonts: &HashMap<String, String>) -> Vec<Option<ListL
                 hanging = Some(min_label);
             }
         }
-        let rpr = lvl.child("text-properties").map(|t| parse_text_properties(t, fonts).0);
-        levels[level - 1] = Some(ListLevel { kind, left, hanging, suffix, rpr, tab_pos });
+        let text = lvl.child("text-properties").map(|t| parse_text_properties(t, fonts));
+        let size_percent = text.as_ref().and_then(|t| t.1);
+        let rpr = text.map(|t| t.0);
+        levels[level - 1] = Some(ListLevel { kind, left, hanging, suffix, rpr, tab_pos, size_percent });
     }
     levels
 }

@@ -662,6 +662,8 @@ struct PageOptions {
     footer: Option<String>,
     body_top: Option<f64>,
     body_bottom: Option<f64>,
+    header_first: Option<String>,
+    footer_first: Option<String>,
 }
 
 impl Default for PageOptions {
@@ -686,6 +688,8 @@ impl Default for PageOptions {
             footer: None,
             body_top: None,
             body_bottom: None,
+            header_first: None,
+            footer_first: None,
         }
     }
 }
@@ -1222,8 +1226,15 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             anchors,
             ..Section::default()
         };
-        section.header_default = header.clone();
-        section.footer_default = footer.clone();
+        let first = sections.is_empty();
+        section.header_default = match (&page.header_first, first) {
+            (Some(code), true) => Some(header_footer(code, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale)),
+            _ => header.clone(),
+        };
+        section.footer_default = match (&page.footer_first, first) {
+            (Some(code), true) => Some(header_footer(code, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale)),
+            _ => footer.clone(),
+        };
         sections.push(section);
     }
     sections

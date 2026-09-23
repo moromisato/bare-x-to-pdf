@@ -6,15 +6,17 @@ A native addon with a Rust engine that lays pages out with
 
 `x` is every format it reads into a PDF today:
 
-| Family            | Extensions                         |
-| ----------------- | ---------------------------------- |
-| Word (OOXML)      | `.docx`, `.docm`, `.dotx`, `.dotm` |
-| Word 97–2003      | `.doc`, `.dot`                     |
-| OpenDocument Text | `.odt`, `.ott`, `.fodt`            |
-| PowerPoint        | `.pptx`                            |
-| Excel             | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
-| Excel 97–2003     | `.xls`, `.xlt`                     |
-| Markdown          | `.md`, `.markdown`                 |
+| Family              | Extensions                         |
+| ------------------- | ---------------------------------- |
+| Word (OOXML)        | `.docx`, `.docm`, `.dotx`, `.dotm` |
+| Word 97–2003        | `.doc`, `.dot`                     |
+| OpenDocument Text   | `.odt`, `.ott`, `.fodt`            |
+| OpenDocument Sheet  | `.ods`, `.ots`, `.fods`            |
+| OpenDocument Slides | `.odp`, `.otp`, `.fodp`            |
+| PowerPoint          | `.pptx`                            |
+| Excel               | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
+| Excel 97–2003       | `.xls`, `.xlt`                     |
+| Markdown            | `.md`, `.markdown`                 |
 
 ## Install
 

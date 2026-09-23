@@ -166,6 +166,19 @@ impl<'a> Formats<'a> {
         index
     }
 
+    fn wrapping(&mut self, xf: usize) -> usize {
+        let key = format!("\u{0}wrap:{xf}");
+        if let Some(&i) = self.by_name.get(&key) {
+            return i;
+        }
+        let mut copy = self.styles.xf(xf).clone();
+        copy.wrap = true;
+        self.styles.xfs.push(copy);
+        let index = self.styles.xfs.len() - 1;
+        self.by_name.insert(key, index);
+        index
+    }
+
     fn dxf(&self, name: &str) -> Dxf {
         let mut dxf = Dxf::default();
         let encoded = encode_style_name(name);
@@ -332,10 +345,14 @@ fn read_table(table: &Element, odf: &OdfStyles, formats: &mut Formats, pkg: &Pac
                     .or_else(|| row_style.clone())
                     .or_else(|| column_style(c));
                 let runs = cell_runs(cell, odf, base_size);
+                let lines = cell.children("p").count().max(1);
                 let value = cell_value(cell, runs);
-                let xf = style.as_deref().map(|s| formats.xf(s)).unwrap_or(0);
+                let mut xf = style.as_deref().map(|s| formats.xf(s)).unwrap_or(0);
+                if lines > 1 {
+                    xf = formats.wrapping(xf);
+                }
                 if c <= MAX_COLUMNS && (span < 1024 || style.as_deref() != Some("Default")) {
-                    tallest = tallest.max(line_height(formats.styles.font(formats.styles.xf(xf).font)));
+                    tallest = tallest.max(line_height(formats.styles.font(formats.styles.xf(xf).font)) * lines as f64);
                 }
                 let styled = style.is_some() && {
                     let x = formats.styles.xf(xf);
@@ -612,6 +629,9 @@ fn page_options(table: &Element, odf: &OdfStyles, formats: &Formats, _sheet_name
     }
     page.header = header_code(master.and_then(|m| m.header.as_ref()));
     page.footer = header_code(master.and_then(|m| m.footer.as_ref()));
+    let raw_master = odf.master_page_elements.get(&master_name).or_else(|| odf.master_page_elements.get("Default"));
+    page.header_first = raw_master.and_then(|m| m.child("header-first")).and_then(|h| header_code(Some(h)));
+    page.footer_first = raw_master.and_then(|m| m.child("footer-first")).and_then(|f| header_code(Some(f)));
     let line = formats.base_font.size.unwrap_or(10.0) * 1.149;
     page.margin_header = page.margin_top;
     page.margin_footer = page.margin_bottom;

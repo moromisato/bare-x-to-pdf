@@ -155,7 +155,7 @@ impl Slides<'_> {
     fn graphic(&self, el: &Element) -> GraphicProps {
         let mut props = GraphicProps { opacity: 1.0, ..GraphicProps::default() };
         if let Some((family, name)) = self.style_of(el) {
-            props = self.styles.graphic_family(family, name);
+            props = self.styles.graphic_with_default(family, name);
         }
         props
     }
@@ -251,7 +251,10 @@ impl Slides<'_> {
             return;
         };
         let Some(content) = self.content(el, w, h) else { return };
-        out.push(crate::pptx::page_anchor(x, y, w, h, content, -rot, false, false, master));
+        let geometry = el.child("enhanced-geometry");
+        let flip_h = geometry.and_then(|g| g.attr("mirror-horizontal")) == Some("true");
+        let flip_v = geometry.and_then(|g| g.attr("mirror-vertical")) == Some("true");
+        out.push(crate::pptx::page_anchor(x, y, w, h, content, -rot, flip_h, flip_v, master));
     }
 
     fn line_geometry(&self, el: &Element) -> Option<(f64, f64, f64, f64, f64)> {
@@ -265,7 +268,10 @@ impl Slides<'_> {
         match el.name.as_str() {
             "frame" => {
                 if let Some(table) = el.child("table") {
-                    return Some(DrawingContent::Table(self.reader.table(table)));
+                    *self.reader.frame_base.borrow_mut() = Some(self.text_base(el));
+                    let table = self.reader.table(table);
+                    *self.reader.frame_base.borrow_mut() = None;
+                    return Some(DrawingContent::Table(table));
                 }
                 if let Some(object) = el.child("object") {
                     let href = object.attr("href").unwrap_or("").trim_start_matches("./").trim_end_matches('/');
@@ -302,6 +308,49 @@ impl Slides<'_> {
                     inset: graphic.padding,
                     valign: self.valign(el),
                     shape: ShapeKind::Rect,
+                    ..TextBox::default()
+                }))
+            }
+            "polygon" | "polyline" | "path" => {
+                let view: Vec<f64> = el.attr("viewBox").unwrap_or("0 0 1 1").split_whitespace().filter_map(|v| v.parse().ok()).collect();
+                let (vx, vy) = (view.first().copied().unwrap_or(0.0), view.get(1).copied().unwrap_or(0.0));
+                let (vw, vh) = (view.get(2).copied().unwrap_or(1.0).max(1e-9), view.get(3).copied().unwrap_or(1.0).max(1e-9));
+                let norm = |x: f64, y: f64| ((x - vx) / vw, (y - vy) / vh);
+                let commands = if el.name == "path" {
+                    super::geometry::svg_path(el.attr("d")?, &norm)
+                } else {
+                    let points: Vec<(f64, f64)> = el
+                        .attr("points")?
+                        .split_whitespace()
+                        .filter_map(|pair| {
+                            let (x, y) = pair.split_once(',')?;
+                            Some(norm(x.parse().ok()?, y.parse().ok()?))
+                        })
+                        .collect();
+                    let mut commands: Vec<PathCommand> = points
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &(x, y))| if i == 0 { PathCommand::Move(x, y) } else { PathCommand::Line(x, y) })
+                        .collect();
+                    if el.name == "polygon" {
+                        commands.push(PathCommand::Close);
+                    }
+                    commands
+                };
+                if commands.is_empty() {
+                    return None;
+                }
+                let open = el.name == "polyline" || !commands.iter().any(|c| matches!(c, PathCommand::Close));
+                let blocks = if el.children("p").next().is_some() { self.text_blocks(el, el) } else { Vec::new() };
+                Some(DrawingContent::TextBox(TextBox {
+                    blocks,
+                    fill: if open { None } else { graphic.fill },
+                    fill_style: if open { None } else { self.fill_style(&graphic) },
+                    opacity: graphic.opacity,
+                    stroke: graphic.stroke,
+                    inset: graphic.padding,
+                    valign: self.valign(el),
+                    shape: ShapeKind::Path(commands),
                     ..TextBox::default()
                 }))
             }
