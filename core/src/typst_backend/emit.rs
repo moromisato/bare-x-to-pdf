@@ -22,6 +22,7 @@ pub fn emit(doc: &Document, fonts: &FontSet) -> Emitted {
         files: RefCell::new(Vec::new()),
         page: RefCell::new(PageSetup::default()),
         para_line: Cell::new(None),
+        table_depth: Cell::new(0),
     };
     emitter.preamble();
     for (index, section) in doc.sections.iter().enumerate() {
@@ -40,6 +41,7 @@ struct Emitter<'a> {
     files: RefCell<Vec<(String, Vec<u8>)>>,
     page: RefCell<PageSetup>,
     para_line: Cell<Option<f64>>,
+    table_depth: Cell<u32>,
 }
 
 struct CellOut {
@@ -636,6 +638,7 @@ impl Emitter<'_> {
     }
 
     fn text_expr_line(&self, text: &str, props: &RunProps, spacing: LineSpacing, empty_line: bool) -> String {
+        let text = &if self.table_depth.get() > 0 { hyphen_break_opportunities(text) } else { std::borrow::Cow::Borrowed(text) };
         if props.caps == Some(true) {
             return self.text_expr_content_line(&typst_str(&text.to_uppercase()), props, spacing, empty_line);
         }
@@ -1207,6 +1210,13 @@ impl Emitter<'_> {
     }
 
     fn table_expr(&self, table: &Table) -> String {
+        self.table_depth.set(self.table_depth.get() + 1);
+        let expr = self.table_expr_inner(table);
+        self.table_depth.set(self.table_depth.get() - 1);
+        expr
+    }
+
+    fn table_expr_inner(&self, table: &Table) -> String {
         if table.rows.is_empty() {
             return "box()".to_string();
         }
@@ -1541,6 +1551,24 @@ pub fn pt(value: f64) -> String {
         return "0pt".to_string();
     }
     format!("{rounded}pt")
+}
+
+fn hyphen_break_opportunities(text: &str) -> std::borrow::Cow<'_, str> {
+    let chars: Vec<char> = text.chars().collect();
+    let breaks_after = |i: usize| {
+        chars[i] == '-' && i > 0 && chars[i - 1].is_alphabetic() && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit())
+    };
+    if !(0..chars.len()).any(breaks_after) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 3);
+    for (i, ch) in chars.iter().enumerate() {
+        out.push(*ch);
+        if breaks_after(i) {
+            out.push('\u{200B}');
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 pub fn typst_str(text: &str) -> String {
