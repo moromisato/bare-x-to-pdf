@@ -68,6 +68,16 @@ pub struct Section {
     pub page_format: PageNumberFormat,
     pub content_scale: f64,
     pub anchors: Vec<Anchor>,
+    pub notes: Vec<PageNote>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PageNote {
+    pub x: f64,
+    pub y: f64,
+    pub scale: f64,
+    pub title: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

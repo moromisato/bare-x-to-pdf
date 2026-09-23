@@ -88,6 +88,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         let mut parsed = parse_sheet(&root, &styles, &shared, print_areas.get(&index).map(String::as_str));
         auto_row_heights(&mut parsed, &styles);
         parsed.drawings = read_drawings(&mut archive, path, &parsed, &theme)?;
+        parsed.notes = read_comments(&mut archive, path)?;
         for drawing in &parsed.drawings {
             let (col, row) = cell_at(&parsed, drawing.x + drawing.width, drawing.y + drawing.height);
             if parsed.first_row == 0 {
@@ -685,6 +686,7 @@ struct SheetDrawing {
 }
 
 struct Sheet {
+    notes: BTreeMap<(u32, u32), String>,
     conditional: Vec<CondRule>,
     drawings: Vec<SheetDrawing>,
     col_widths: Vec<f64>,
@@ -908,6 +910,7 @@ fn parse_sheet(root: &Element, styles: &Styles, shared: &[Vec<(String, RunProps)
     };
 
     Sheet {
+        notes: BTreeMap::new(),
         drawings: Vec::new(),
         col_widths: extent.col_widths,
         rows,
@@ -1182,7 +1185,9 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
                 )
             })
             .collect();
+        let notes = page_notes(sheet, rg, cg, page.margin_left + table.indent * scale, top_margin, scale);
         let mut section = Section {
+            notes,
             page: PageSetup {
                 width: page.width,
                 height: page.height,
@@ -1206,6 +1211,56 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
         sections.push(section);
     }
     sections
+}
+
+fn page_notes(sheet: &Sheet, rows: &[u32], cols: &[u32], left: f64, top: f64, scale: f64) -> Vec<PageNote> {
+    let col_w = |c: u32| sheet.col_widths.get((c - 1) as usize).copied().unwrap_or(48.0);
+    let row_h = |r: u32| sheet.rows.get(&r).and_then(|d| d.height).unwrap_or(sheet.default_row_height);
+    sheet
+        .notes
+        .iter()
+        .filter(|((r, c), _)| rows.contains(r) && cols.contains(c))
+        .map(|((r, c), text)| {
+            let x: f64 = cols.iter().take_while(|k| *k <= c).map(|k| col_w(*k)).sum();
+            let y: f64 = rows.iter().take_while(|k| *k < r).map(|k| row_h(*k)).sum();
+            PageNote { x: left + x * scale, y: top + y * scale, scale, title: cell_name(*r, *c), text: text.clone() }
+        })
+        .collect()
+}
+
+fn cell_name(row: u32, col: u32) -> String {
+    let mut letters = String::new();
+    let mut n = col;
+    while n > 0 {
+        let rem = ((n - 1) % 26) as u8;
+        letters.insert(0, (b'A' + rem) as char);
+        n = (n - 1) / 26;
+    }
+    format!("{letters}{row}")
+}
+
+fn read_comments<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, sheet_path: &str) -> Result<BTreeMap<(u32, u32), String>, Error> {
+    let mut notes = BTreeMap::new();
+    let (dir, file) = sheet_path.rsplit_once('/').unwrap_or(("", sheet_path));
+    let Some(rels) = entry(archive, &format!("{dir}/_rels/{file}.rels"))? else { return Ok(notes) };
+    let rels = xml::parse(&rels)?;
+    for rel in rels.children("Relationship") {
+        if !rel.attr("Type").unwrap_or("").ends_with("/comments") {
+            continue;
+        }
+        let Some(target) = rel.attr("Target") else { continue };
+        let Some(data) = entry(archive, &resolve_path(dir, target))? else { continue };
+        let root = xml::parse(&data)?;
+        for comment in root.child("commentList").into_iter().flat_map(|l| l.children("comment")) {
+            let Some((c, r)) = comment.attr("ref").and_then(column_index) else { continue };
+            let text: String = comment
+                .child("text")
+                .map(|t| t.text())
+                .unwrap_or_default();
+            notes.insert((r, c), text);
+        }
+    }
+    Ok(notes)
 }
 
 fn overflow_source(sheet: &Sheet, styles: &Styles, data: Option<&RowData>, col: u32) -> Option<(u32, f64)> {

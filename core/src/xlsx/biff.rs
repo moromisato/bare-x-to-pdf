@@ -47,6 +47,9 @@ const HEADER: u16 = 0x0014;
 const FOOTER: u16 = 0x0015;
 const HORIZONTALPAGEBREAKS: u16 = 0x001B;
 const VERTICALPAGEBREAKS: u16 = 0x001A;
+const OBJ: u16 = 0x005D;
+const TXO: u16 = 0x01B6;
+const NOTE: u16 = 0x001C;
 
 const BORDER_STYLES: [&str; 14] = [
     "none",
@@ -535,6 +538,9 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
     let mut col_breaks = Vec::new();
     let mut pending_string: Option<(u16, u16, u16)> = None;
     let mut depth = 0;
+    let mut objects: Vec<(u16, u16)> = Vec::new();
+    let mut texts: HashMap<u16, String> = HashMap::new();
+    let mut note_cells: Vec<(u32, u32, u16)> = Vec::new();
 
     for record in records {
         match record.kind {
@@ -693,6 +699,17 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
                     page.footer = text;
                 }
             }
+            OBJ => {
+                if le16(data, 0) == 0x15 {
+                    objects.push((le16(data, 4), le16(data, 6)));
+                }
+            }
+            TXO => {
+                if let (Some(&(_, id)), Some(text)) = (objects.last(), text_object(record)) {
+                    texts.insert(id, text);
+                }
+            }
+            NOTE => note_cells.push((row as u32 + 1, col as u32 + 1, le16(data, 6))),
             HORIZONTALPAGEBREAKS | VERTICALPAGEBREAKS => {
                 let count = le16(data, 0) as usize;
                 let breaks: Vec<u32> = (0..count).map(|i| le16(data, 2 + i * 6) as u32).filter(|b| *b > 0).collect();
@@ -717,7 +734,12 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         page.body_bottom = Some(calc_body_edge(footer, default_size, page.margin_bottom, page.margin_footer));
     }
     let extent = sheet_extent(styles, &builder.rows, &col_specs, default_col_chars, digit, builder.max_row, builder.max_col, print_area);
+    let notes = note_cells
+        .into_iter()
+        .filter_map(|(r, c, id)| texts.get(&id).map(|t| ((r, c), t.clone())))
+        .collect();
     Sheet {
+        notes,
         conditional: Vec::new(),
         drawings: Vec::new(),
         col_widths: extent.col_widths,
@@ -790,6 +812,16 @@ fn header_lines(code: &str, default_size: f64) -> Vec<f64> {
         .map(|lines| lines.into_iter().map(|s| if s > 0.0 { s } else { default_size }).collect::<Vec<_>>())
         .max_by(|a, b| a.iter().sum::<f64>().total_cmp(&b.iter().sum::<f64>()))
         .unwrap_or_else(|| vec![default_size])
+}
+
+fn text_object(record: &Record) -> Option<String> {
+    let count = le16(record.data(), 10) as usize;
+    if count == 0 || record.parts.len() < 2 {
+        return None;
+    }
+    let mut reader = Reader { parts: &record.parts, part: 1, pos: 0 };
+    let wide = reader.u8()? & 1 == 1;
+    reader.chars(count, wide).map(|t| t.replace('\r', "\n"))
 }
 
 fn error_text(code: u8) -> &'static str {
