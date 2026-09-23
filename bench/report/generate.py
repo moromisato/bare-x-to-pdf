@@ -21,8 +21,11 @@ FORMAT_NAMES = {
     "xlsx": "Excel (XLSX)",
     "xls": "Excel 97 (XLS)",
     "md": "Markdown (MD)",
+    "ods": "OpenDocument Sheet (ODS)",
+    "fods": "Flat OpenDocument Sheet (FODS)",
+    "odp": "OpenDocument Slides (ODP)",
 }
-FORMAT_ORDER = ["docx", "doc", "odt", "fodt", "pptx", "xlsx", "xls", "md"]
+FORMAT_ORDER = ["docx", "doc", "odt", "fodt", "pptx", "odp", "xlsx", "xls", "ods", "fods", "md"]
 TIMING_FILES = [
     "sdk-sample.docx",
     "minimal-table-unicode.docx",
@@ -55,6 +58,9 @@ SAMPLES = [
     ("charts.xls", "Column, pie and line charts read from the embedded chart streams, with their data taken from the sheet cells. LibreOffice smooths the line chart and draws diamond markers; ours draws straight lines with square markers."),
     ("cond-format.xls", "Four conditional formats: value comparisons with red and green fills, and formula rules that make a row bold red and a status italic blue. Every rule applies as in LibreOffice."),
     ("comments.xls", "Two cell comments become PDF sticky notes pinned to the cell's top-right corner, the way LibreOffice's export does it. The icons are the viewer's rendering of those notes."),
+    ("odf-group.odp", "A slide with grouped arrows and chevrons whose outlines are enhanced-geometry paths, filled text and nested bullet lists sized like Impress."),
+    ("lo-closed-shapes.odp", "Polylines, polygons and SVG paths from LibreOffice's Impress test data, with stroke widths, joins and dashes."),
+    ("odf-charts.ods", "Column, pie and line charts embedded in an ODS sheet, drawn from the chart objects' own data tables."),
     ("markdown-features.md", "Headings, emphasis, inline code, bullet, nested and numbered lists, a fenced code block, a table, a quote and a rule, laid out with LibreOffice Writer's default styles. Every line sits within half a point of LibreOffice's."),
     ("markdown-readme.md", "This project's README as a real document: a formats table, install commands and the API reference across two pages."),
 ]
