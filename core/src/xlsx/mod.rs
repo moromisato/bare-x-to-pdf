@@ -1,6 +1,7 @@
 mod biff;
 mod biff_art;
 mod biff_cf;
+mod biff_chart;
 pub(crate) mod format;
 mod formula;
 

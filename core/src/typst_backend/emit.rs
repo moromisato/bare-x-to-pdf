@@ -808,9 +808,21 @@ impl Emitter<'_> {
 
     fn chart_expr(&self, chart: &Chart, w: f64, h: f64) -> String {
         const COLORS: [&str; 6] = ["#4472c4", "#ed7d31", "#a5a5a5", "#ffc000", "#5b9bd5", "#70ad47"];
+        let hex = |c: &Color| format!("\"#{}\"", c.hex().trim_start_matches('#'));
+        let series_color = |i: usize| chart.series.get(i).and_then(|s| s.color.as_ref()).map(hex).unwrap_or_else(|| typst_str(COLORS[i % COLORS.len()]));
+        let point_color = |i: usize| {
+            chart
+                .series
+                .first()
+                .and_then(|s| s.point_colors.get(i).copied().flatten())
+                .map(|c| hex(&c))
+                .unwrap_or_else(|| typst_str(COLORS[i % COLORS.len()]))
+        };
+        let grid = chart.style.grid.as_ref().map(hex).unwrap_or_else(|| "\"#b3b3b3\"".into());
+        let font = typst_str(&chart.style.font.as_deref().map_or_else(|| "Carlito".to_string(), |f| self.fonts.resolve(f, None)));
         let label = |text: &str, size: f64, bold: bool| {
             format!(
-                "text(font: \"Carlito\", size: {}, weight: {}, {})",
+                "text(font: {font}, size: {}, weight: {}, {})",
                 pt(size),
                 if bold { "\"bold\"" } else { "\"regular\"" },
                 typst_str(text)
@@ -859,7 +871,7 @@ impl Emitter<'_> {
                     let a = (angle + sweep * k as f64 / steps as f64).to_radians();
                     points.push(format!("({}, {})", pt(cx + radius * a.cos()), pt(cy + radius * a.sin())));
                 }
-                items.push(format!("place(top + left, polygon(fill: rgb({}), stroke: 0.5pt + white, {}))", typst_str(COLORS[i % COLORS.len()]), points.join(", ")));
+                items.push(format!("place(top + left, polygon(fill: rgb({}), stroke: 0.5pt + white, {}))", point_color(i), points.join(", ")));
                 angle += sweep;
             }
         } else {
@@ -880,16 +892,25 @@ impl Emitter<'_> {
                 let t = ((v - axis_min) / span).clamp(0.0, 1.0);
                 if horizontal { (plot_left + t * plot_w, 0.0) } else { (0.0, plot_bottom - t * plot_h) }
             };
+            if chart.style.plot_fill.is_some() || chart.style.plot_border.is_some() {
+                let fill = chart.style.plot_fill.as_ref().map(|c| format!("fill: rgb({}), ", hex(c))).unwrap_or_default();
+                let stroke = chart.style.plot_border.as_ref().map(|c| format!("stroke: 0.5pt + rgb({})", hex(c))).unwrap_or_else(|| "stroke: none".into());
+                items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: {}, height: {}, {fill}{stroke}))", pt(plot_left), pt(plot_top), pt(plot_w), pt(plot_h)));
+            }
             let mut tick = axis_min;
             while tick <= axis_max + step * 0.01 {
                 let text = crate::xlsx::format::general(tick);
                 if horizontal {
                     let x = value_pos(tick).0;
-                    items.push(format!("place(top + left, dx: {}, dy: {}, line(angle: 90deg, length: {}, stroke: 0.4pt + rgb(\"#b3b3b3\")))", pt(x), pt(plot_top), pt(plot_h)));
+                    if !chart.style.no_grid {
+                        items.push(format!("place(top + left, dx: {}, dy: {}, line(angle: 90deg, length: {}, stroke: 0.4pt + rgb({grid})))", pt(x), pt(plot_top), pt(plot_h)));
+                    }
                     items.push(format!("place(top + left, dx: {}, dy: {}, box(width: 30pt, align(center, {})))", pt(x - 15.0), pt(plot_bottom + 4.0), label(&text, 10.0, false)));
                 } else {
                     let y = value_pos(tick).1;
-                    items.push(format!("place(top + left, dx: {}, dy: {}, line(length: {}, stroke: 0.4pt + rgb(\"#b3b3b3\")))", pt(plot_left), pt(y), pt(plot_w)));
+                    if !chart.style.no_grid {
+                        items.push(format!("place(top + left, dx: {}, dy: {}, line(length: {}, stroke: 0.4pt + rgb({grid})))", pt(plot_left), pt(y), pt(plot_w)));
+                    }
                     items.push(format!("place(top + left, dx: 0pt, dy: {}, box(width: {}, align(right, {})))", pt(y - 6.0), pt(plot_left - 5.0), label(&text, 10.0, false)));
                 }
                 tick += step;
@@ -914,7 +935,7 @@ impl Emitter<'_> {
                     let bar = (slot / (series_count as f64 + chart.gap_width.max(0.0) / 100.0)).max(0.5);
                     let gap = slot - bar * series_count as f64;
                     for (si, s) in chart.series.iter().enumerate() {
-                        let color = typst_str(COLORS[si % COLORS.len()]);
+                        let color = series_color(si);
                         for (ci, v) in s.values.iter().enumerate() {
                             let Some(v) = v else { continue };
                             let start = ci as f64 * slot + gap / 2.0 + si as f64 * bar;
@@ -931,7 +952,7 @@ impl Emitter<'_> {
                 }
                 ChartKind::Line | ChartKind::Area => {
                     for (si, s) in chart.series.iter().enumerate() {
-                        let color = typst_str(COLORS[si % COLORS.len()]);
+                        let color = series_color(si);
                         let points: Vec<(f64, f64)> = s
                             .values
                             .iter()
@@ -944,7 +965,7 @@ impl Emitter<'_> {
                             poly.push(format!("({}, {})", pt(points[0].0), pt(zero.1)));
                             items.push(format!("place(top + left, polygon(fill: rgb({color}).transparentize(30%), {}))", poly.join(", ")));
                         }
-                        for pair in points.windows(2) {
+                        for pair in points.windows(2).filter(|_| !s.no_line) {
                             items.push(format!(
                                 "place(top + left, line(start: ({}, {}), end: ({}, {}), stroke: 1.5pt + rgb({color})))",
                                 pt(pair[0].0), pt(pair[0].1), pt(pair[1].0), pt(pair[1].1)
@@ -965,7 +986,7 @@ impl Emitter<'_> {
                 let x = if legend == Some(LegendPos::Left) { 6.0 } else { plot_right + 6.0 };
                 let mut y = plot_top + (plot_h - legend_names.len() as f64 * 12.0).max(0.0) / 2.0;
                 for (i, name) in legend_names.iter().enumerate() {
-                    items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 6pt, height: 6pt, fill: rgb({})))", pt(x), pt(y + 3.0), typst_str(COLORS[i % COLORS.len()])));
+                    items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 6pt, height: 6pt, fill: rgb({})))", pt(x), pt(y + 3.0), if chart.kind == ChartKind::Pie { point_color(i) } else { series_color(i) }));
                     items.push(format!("place(top + left, dx: {}, dy: {}, box(width: {}, clip: true, {}))", pt(x + 9.0), pt(y), pt(legend_side_width - 8.0), label(name, 9.0, false)));
                     y += 12.0;
                 }
@@ -976,14 +997,15 @@ impl Emitter<'_> {
                 let mut x = (w - total) / 2.0;
                 let y = if legend == Some(LegendPos::Top) { title_height } else { h - legend_band_height - 4.0 };
                 for (i, name) in legend_names.iter().enumerate() {
-                    items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 6pt, height: 6pt, fill: rgb({})))", pt(x), pt(y + 3.0), typst_str(COLORS[i % COLORS.len()])));
+                    items.push(format!("place(top + left, dx: {}, dy: {}, rect(width: 6pt, height: 6pt, fill: rgb({})))", pt(x), pt(y + 3.0), if chart.kind == ChartKind::Pie { point_color(i) } else { series_color(i) }));
                     items.push(format!("place(top + left, dx: {}, dy: {}, {})", pt(x + 9.0), pt(y), label(name, 9.0, false)));
                     x += widths[i];
                 }
             }
             None => {}
         }
-        format!("block(width: {}, height: {}, fill: white, stroke: 0.5pt + rgb(\"#bfbfbf\"), clip: true, {{ {} }})", pt(w), pt(h), items.join("; "))
+        let border = chart.style.border.as_ref().map(hex).unwrap_or_else(|| "\"#bfbfbf\"".into());
+        format!("block(width: {}, height: {}, fill: white, stroke: 0.5pt + rgb({border}), clip: true, {{ {} }})", pt(w), pt(h), items.join("; "))
     }
 
     fn register(&self, image: &ImageData) -> String {

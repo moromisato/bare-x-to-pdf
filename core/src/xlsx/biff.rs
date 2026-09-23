@@ -1,5 +1,6 @@
 use super::biff_art;
 use super::biff_cf;
+use super::biff_chart;
 use super::{
     auto_row_heights, border_side, column_width, digit_width, has_border, indexed_color, paper_size, sheet_extent, workbook_defaults,
     workbook_document, CellData, CellValue, Dxf, Font, PageOptions, RowData, Sheet, SheetDrawing, Styles, Xf,
@@ -56,6 +57,7 @@ const MSODRAWINGGROUP: u16 = 0x00EB;
 const MSODRAWING: u16 = 0x00EC;
 const CONDFMT: u16 = 0x01B0;
 const CF: u16 = 0x01B1;
+const EXTERNSHEET: u16 = 0x0017;
 
 const BORDER_STYLES: [&str; 14] = [
     "none",
@@ -231,6 +233,7 @@ struct SheetEntry {
 
 struct Globals {
     palette: Palette,
+    external_sheets: Vec<u16>,
     styles: Styles,
     blips: Vec<Option<ImageData>>,
     strings: Vec<Vec<(String, RunProps)>>,
@@ -271,22 +274,77 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
     let mut globals = read_globals(&records);
     let by_offset: HashMap<usize, usize> = records.iter().enumerate().map(|(i, r)| (r.offset, i)).collect();
 
-    let mut parsed = Vec::new();
+    let mut sheets: Vec<Option<(Sheet, Vec<(usize, biff_chart::ChartSource)>)>> = Vec::new();
     for (index, entry) in globals.sheets.iter().enumerate() {
-        if !entry.visible || !entry.worksheet {
+        let Some(&start) = by_offset.get(&entry.offset).filter(|_| entry.worksheet) else {
+            sheets.push(None);
             continue;
-        }
-        let Some(&start) = by_offset.get(&entry.offset) else { continue };
-        let (mut sheet, dxfs) = read_sheet(&records[start..], &globals, globals.print_areas.get(&index).copied());
+        };
+        let (mut sheet, dxfs, charts) = read_sheet(&records[start..], &globals, globals.print_areas.get(&index).copied());
         let base = globals.styles.dxfs.len();
         for rule in &mut sheet.conditional {
             rule.dxf += base;
         }
         globals.styles.dxfs.extend(dxfs);
         auto_row_heights(&mut sheet, &globals.styles);
+        sheets.push(Some((sheet, charts)));
+    }
+
+    let fills: Vec<Color> = (24..32).filter_map(|i| globals.palette.color(i)).collect();
+    let lines: Vec<Color> = (32..40).filter_map(|i| globals.palette.color(i)).collect();
+    let resolved: Vec<Vec<(usize, Chart)>> = sheets
+        .iter()
+        .map(|entry| {
+            let Some((_, charts)) = entry else { return Vec::new() };
+            charts
+                .iter()
+                .map(|(drawing, source)| {
+                    let cells = |area: &biff_chart::Area| chart_cells(&sheets, &globals, area);
+                    let font = source
+                        .font
+                        .and_then(|i| globals.styles.fonts.get(font_index(i)))
+                        .and_then(|f| f.props.font.clone());
+                    (*drawing, biff_chart::resolve(source, &cells, &fills, &lines, font))
+                })
+                .collect()
+        })
+        .collect();
+
+    let mut parsed = Vec::new();
+    for ((entry, sheet), charts) in globals.sheets.iter().zip(sheets).zip(resolved) {
+        let Some((mut sheet, _)) = sheet else { continue };
+        if !entry.visible {
+            continue;
+        }
+        for (drawing, chart) in charts {
+            if let Some(d) = sheet.drawings.get_mut(drawing) {
+                d.content = DrawingContent::Chart(chart);
+            }
+        }
         parsed.push((entry.name.clone(), sheet));
     }
     Ok(workbook_document(workbook_defaults(), &parsed, &globals.styles))
+}
+
+fn chart_cells(sheets: &[Option<(Sheet, Vec<(usize, biff_chart::ChartSource)>)>], globals: &Globals, area: &biff_chart::Area) -> Vec<biff_chart::Cell> {
+    let Some(Some((sheet, _))) = globals.external_sheets.get(area.sheet as usize).and_then(|&tab| sheets.get(tab as usize)) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for row in area.row1..=area.row2.min(area.row1 + 4096) {
+        for col in area.col1..=area.col2.min(area.col1 + 256) {
+            let cell = sheet.rows.get(&(row + 1)).and_then(|r| r.cells.get(&(col + 1)));
+            out.push(match cell.map(|c| (&c.value, c.style)) {
+                Some((&CellValue::Number(v), style)) => {
+                    let code = globals.styles.format_code(globals.styles.xf(style).num_fmt).unwrap_or_else(|| "General".into());
+                    biff_chart::Cell::Number(v, super::format::format_number(v, &code).text)
+                }
+                Some((CellValue::Text(parts), _)) => biff_chart::Cell::Text(parts.iter().map(|(t, _)| t.as_str()).collect()),
+                _ => biff_chart::Cell::Empty,
+            });
+        }
+    }
+    out
 }
 
 fn read_globals(records: &[Record]) -> Globals {
@@ -312,6 +370,7 @@ fn read_globals(records: &[Record]) -> Globals {
     let mut print_areas = HashMap::new();
     let mut raw_xfs: Vec<Vec<u8>> = Vec::new();
     let mut drawing_group: Vec<u8> = Vec::new();
+    let mut external_sheets = Vec::new();
 
     for record in records.iter().skip(1).take_while(|r| r.kind != EOF) {
         let data = record.data();
@@ -345,6 +404,10 @@ fn read_globals(records: &[Record]) -> Globals {
             }
             SST => strings = shared_strings(record, &fonts),
             MSODRAWINGGROUP => record.parts.iter().for_each(|part| drawing_group.extend_from_slice(part)),
+            EXTERNSHEET => {
+                let count = le16(data, 0) as usize;
+                external_sheets = (0..count).map(|i| le16(data, 2 + i * 6 + 2)).collect();
+            }
             NAME => {
                 if let Some((sheet, area)) = print_area(data) {
                     print_areas.insert(sheet, area);
@@ -368,6 +431,7 @@ fn read_globals(records: &[Record]) -> Globals {
     }
     Globals {
         palette,
+        external_sheets,
         blips: biff_art::blip_store(&drawing_group),
         styles: Styles { fonts, xfs, num_fmts, dxfs: Vec::new() },
         strings,
@@ -534,7 +598,7 @@ impl SheetBuilder<'_> {
     }
 }
 
-fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u32, u32, u32)>) -> (Sheet, Vec<Dxf>) {
+fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u32, u32, u32)>) -> (Sheet, Vec<Dxf>, Vec<(usize, biff_chart::ChartSource)>) {
     let mut builder = SheetBuilder { globals, rows: BTreeMap::new(), max_row: 0, max_col: 0 };
     let mut col_specs: Vec<(u32, u32, f64, bool)> = Vec::new();
     let mut default_col_chars = 8.43;
@@ -559,6 +623,7 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
     let mut texts: HashMap<u16, String> = HashMap::new();
     let mut note_cells: Vec<(u32, u32, u16)> = Vec::new();
     let mut drawing: Vec<u8> = Vec::new();
+    let mut chart_streams: Vec<Vec<(u16, &[u8])>> = Vec::new();
     let mut conditional = Vec::new();
     let mut dxfs: Vec<Dxf> = Vec::new();
     let mut condition_group: Option<(&[u8], Vec<&[u8]>)> = None;
@@ -579,12 +644,21 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         match record.kind {
             BOF => {
                 depth += 1;
+                if depth == 2 {
+                    chart_streams.push(Vec::new());
+                }
                 continue;
             }
             EOF => {
                 depth -= 1;
                 if depth == 0 {
                     break;
+                }
+                continue;
+            }
+            _ if depth >= 2 => {
+                if let Some(stream) = chart_streams.last_mut() {
+                    stream.push((record.kind, record.data()));
                 }
                 continue;
             }
@@ -794,15 +868,28 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         (1..=row as u32).map(row_height).sum::<f64>() + row_height(row as u32 + 1) * (dy.min(256) as f64 / 256.0)
     };
     let mut drawings = Vec::new();
-    for shape in biff_art::shapes(&drawing) {
-        let (Some(anchor), Some(index)) = (&shape.anchor, shape.picture) else { continue };
+    let mut charts = Vec::new();
+    let shapes = biff_art::shapes(&drawing);
+    let paired = shapes.len() == objects.len();
+    let mut chart_sources = chart_streams.iter().map(|s| biff_chart::parse(s));
+    for (index, shape) in shapes.iter().enumerate() {
+        let is_chart = paired && objects[index].0 == 5;
+        let chart = if is_chart { chart_sources.next().flatten() } else { None };
+        let Some(anchor) = &shape.anchor else { continue };
         if shape.hidden || shape.child {
             continue;
         }
-        let Some(Some(image)) = globals.blips.get(index) else { continue };
+        let content = match (shape.picture.and_then(|i| globals.blips.get(i)), chart) {
+            (Some(Some(image)), _) => DrawingContent::Image(image.clone()),
+            (_, Some(source)) => {
+                charts.push((drawings.len(), source));
+                DrawingContent::Placeholder(None)
+            }
+            _ => continue,
+        };
         let (x, y) = (x_of(anchor.col1, anchor.dx1), y_of(anchor.row1, anchor.dy1));
         let (x2, y2) = (x_of(anchor.col2, anchor.dx2), y_of(anchor.row2, anchor.dy2));
-        drawings.push(SheetDrawing { x, y, width: (x2 - x).max(0.0), height: (y2 - y).max(0.0), content: DrawingContent::Image(image.clone()) });
+        drawings.push(SheetDrawing { x, y, width: (x2 - x).max(0.0), height: (y2 - y).max(0.0), content });
         builder.max_row = builder.max_row.max(anchor.row2 as u32 + 1);
         builder.max_col = builder.max_col.max(anchor.col2 as u32 + 1);
     }
@@ -827,7 +914,7 @@ fn read_sheet(records: &[Record], globals: &Globals, print_area: Option<(u32, u3
         row_breaks,
         col_breaks,
     };
-    (sheet, dxfs)
+    (sheet, dxfs, charts)
 }
 
 fn calc_body_edge(code: &str, default_size: f64, margin: f64, hf_margin: f64) -> f64 {
