@@ -676,7 +676,7 @@ fn trim_inlines(inlines: &mut Vec<Inline>) {
     inlines.retain(|i| !matches!(i, Inline::Text { text, .. } if text.is_empty()));
 }
 
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() * 3 / 4);
     let mut buffer = 0u32;
     let mut bits = 0;

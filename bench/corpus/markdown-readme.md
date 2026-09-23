@@ -14,7 +14,6 @@ A native addon with a Rust engine that lays pages out with
 | PowerPoint        | `.pptx`                            |
 | Excel             | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
 | Excel 97–2003     | `.xls`, `.xlt`                     |
-| Markdown          | `.md`, `.markdown`                 |
 
 ## Install
 
@@ -52,9 +51,7 @@ synchronous and CPU bound; run them in a `Bare.Thread` when latency matters.
 Convert `input` and return a `Buffer`.
 
 - `options.to` — target format, `'pdf'`. Required.
-- `options.from` — source format; sniffed from the bytes when omitted. Markdown has no
-  signature to sniff, so pass `from: 'md'` for it. Markdown images load only from `data:`
-  URIs, since the input is bytes with no directory to resolve relative paths against.
+- `options.from` — source format; sniffed from the bytes when omitted.
 - `options.fontsDir` — a directory of fonts to use instead of the bundled set.
 
 ### `detect(input)`

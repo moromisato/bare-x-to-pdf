@@ -19,7 +19,9 @@ const CONVERSIONS = {
   xltx: ['pdf'],
   xltm: ['pdf'],
   xls: ['pdf'],
-  xlt: ['pdf']
+  xlt: ['pdf'],
+  md: ['pdf'],
+  markdown: ['pdf']
 }
 
 const ZIP_MARKERS = [

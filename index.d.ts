@@ -15,6 +15,8 @@ export type Format =
   | 'xltm'
   | 'xls'
   | 'xlt'
+  | 'md'
+  | 'markdown'
 
 export interface ConvertOptions {
   to: Format | string

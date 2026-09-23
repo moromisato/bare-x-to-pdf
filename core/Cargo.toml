@@ -18,6 +18,7 @@ ttf-parser = "0.25"
 cfb = "0.14"
 encoding_rs = "0.8"
 png = "0.18"
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [profile.dev]
 debug = 0
