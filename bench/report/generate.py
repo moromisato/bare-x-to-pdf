@@ -54,9 +54,9 @@ SAMPLES = [
     ("picture.xls", "A PNG picture anchored from B3 to E12, read from the workbook's drawing layer and placed by its cell anchor. Size and position match."),
     ("charts.xls", "Column, pie and line charts read from the embedded chart streams, with their data taken from the sheet cells. LibreOffice smooths the line chart and draws diamond markers; ours draws straight lines with square markers."),
     ("cond-format.xls", "Four conditional formats: value comparisons with red and green fills, and formula rules that make a row bold red and a status italic blue. Every rule applies as in LibreOffice."),
+    ("comments.xls", "Two cell comments become PDF sticky notes pinned to the cell's top-right corner, the way LibreOffice's export does it. The icons are the viewer's rendering of those notes."),
     ("markdown-features.md", "Headings, emphasis, inline code, bullet, nested and numbered lists, a fenced code block, a table, a quote and a rule, laid out with LibreOffice Writer's default styles. Every line sits within half a point of LibreOffice's."),
     ("markdown-readme.md", "This project's README as a real document: a formats table, install commands and the API reference across two pages."),
-    ("comments.xls", "Two cell comments become PDF sticky notes pinned to the cell's top-right corner, the way LibreOffice's export does it. The icons are the viewer's rendering of those notes."),
 ]
 
 
