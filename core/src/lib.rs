@@ -1,7 +1,9 @@
 pub mod doc;
 pub mod docx;
 pub mod error;
+pub mod markdown;
 pub mod model;
+pub mod odf_chart;
 pub mod odt;
 pub mod pptx;
 pub mod typst_backend;
@@ -46,8 +48,20 @@ pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<
             let document = xlsx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
+        ("odp" | "otp" | "fodp", "pdf") => {
+            let document = odt::read_odp(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
+        ("ods" | "ots" | "fods", "pdf") => {
+            let document = xlsx::read_ods(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
         ("xls" | "xlt", "pdf") => {
             let document = xlsx::read_xls(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
+        ("md" | "markdown", "pdf") => {
+            let document = markdown::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
         ("pptx", "pdf") => {

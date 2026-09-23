@@ -8,6 +8,12 @@ export type Format =
   | 'odt'
   | 'ott'
   | 'fodt'
+  | 'ods'
+  | 'ots'
+  | 'fods'
+  | 'odp'
+  | 'otp'
+  | 'fodp'
   | 'pptx'
   | 'xlsx'
   | 'xlsm'
@@ -15,6 +21,8 @@ export type Format =
   | 'xltm'
   | 'xls'
   | 'xlt'
+  | 'md'
+  | 'markdown'
 
 export interface ConvertOptions {
   to: Format | string

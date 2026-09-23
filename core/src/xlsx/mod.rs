@@ -2,6 +2,9 @@ mod biff;
 mod biff_art;
 mod biff_cf;
 mod biff_chart;
+mod ods;
+
+pub use ods::read as read_ods;
 pub(crate) mod format;
 mod formula;
 
@@ -334,7 +337,7 @@ struct CondRule {
 
 fn cell_value(sheet: &Sheet, row: u32, col: u32) -> formula::Value {
     match sheet.rows.get(&row).and_then(|d| d.cells.get(&col)).map(|c| &c.value) {
-        Some(CellValue::Number(n)) => formula::Value::Num(*n),
+        Some(CellValue::Number(n)) | Some(CellValue::Shown(n, _)) => formula::Value::Num(*n),
         Some(CellValue::Bool(b)) => formula::Value::Bool(*b),
         Some(CellValue::Text(parts)) => formula::Value::Str(parts.iter().map(|(t, _)| t.as_str()).collect()),
         _ => formula::Value::Empty,
@@ -369,7 +372,12 @@ fn conditional_dxf<'a>(sheet: &Sheet, styles: &'a Styles, row: u32, col: u32, va
         }));
         let hit = match rule.kind.as_str() {
             "cellIs" => {
-                let Some(v) = value.and_then(|v| if let CellValue::Number(n) = v { Some(*n) } else { None }) else { continue };
+                let Some(v) = value.and_then(|v| match v {
+                    CellValue::Number(n) | CellValue::Shown(n, _) => Some(*n),
+                    _ => None,
+                }) else {
+                    continue;
+                };
                 let a = operand(0).as_ref().and_then(number);
                 let b = operand(1).as_ref().and_then(number);
                 match (rule.operator.as_str(), a, b) {
@@ -613,6 +621,7 @@ fn parse_borders(b: &Element, theme: &Theme) -> Borders {
 enum CellValue {
     Empty,
     Number(f64),
+    Shown(f64, Vec<(String, RunProps)>),
     Text(Vec<(String, RunProps)>),
     Bool(bool),
     Error(String),
@@ -653,6 +662,8 @@ struct PageOptions {
     footer: Option<String>,
     body_top: Option<f64>,
     body_bottom: Option<f64>,
+    header_first: Option<String>,
+    footer_first: Option<String>,
 }
 
 impl Default for PageOptions {
@@ -677,6 +688,8 @@ impl Default for PageOptions {
             footer: None,
             body_top: None,
             body_bottom: None,
+            header_first: None,
+            footer_first: None,
         }
     }
 }
@@ -1213,8 +1226,15 @@ fn paginate(sheet: &Sheet, name: &str, styles: &Styles) -> Vec<Section> {
             anchors,
             ..Section::default()
         };
-        section.header_default = header.clone();
-        section.footer_default = footer.clone();
+        let first = sections.is_empty();
+        section.header_default = match (&page.header_first, first) {
+            (Some(code), true) => Some(header_footer(code, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale)),
+            _ => header.clone(),
+        };
+        section.footer_default = match (&page.footer_first, first) {
+            (Some(code), true) => Some(header_footer(code, name, page.width - page.margin_left - page.margin_right, styles.font(0), page.scale)),
+            _ => footer.clone(),
+        };
         sections.push(section);
     }
     sections
@@ -1432,6 +1452,17 @@ fn build_table(sheet: &Sheet, rows: &[u32], cols: &[u32], styles: &Styles, scale
                         })
                         .collect();
                     (runs, Align::Left)
+                }
+                Some(CellValue::Shown(_, parts)) => {
+                    let runs = parts
+                        .iter()
+                        .map(|(text, overrides)| {
+                            let mut props = font.clone();
+                            props.merge(overrides);
+                            (text.clone(), props)
+                        })
+                        .collect();
+                    (runs, Align::Right)
                 }
                 Some(CellValue::Bool(b)) => (vec![(if *b { "TRUE".into() } else { "FALSE".into() }, font.clone())], Align::Right),
                 Some(CellValue::Error(e)) => (vec![(e.clone(), font.clone())], Align::Center),

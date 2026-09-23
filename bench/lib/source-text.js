@@ -77,6 +77,27 @@ function fodt(bytes) {
   return odtBody(bytes.toString('utf8'))
 }
 
+function odfText(content, container) {
+  const body = content.match(new RegExp(`<office:${container}\\b[\\s\\S]*?</office:${container}>`))
+  if (!body) return ''
+  const cleaned = body[0]
+    .replace(/<office:annotation\b[\s\S]*?<\/office:annotation>/g, '')
+    .replace(/<presentation:notes\b[\s\S]*?<\/presentation:notes>/g, '')
+    .replace(/<table:table-cell\b[^>]*table:number-columns-repeated="\d+"[^>]*\/>/g, '')
+    .replace(/<\/table:table-cell>/g, '</table:table-cell> ')
+  return stripTags(cleaned.replace(/<\/text:p>/g, '</text:p>\n'))
+}
+
+function ods(bytes) {
+  if (bytes[0] !== 0x50) return odfText(bytes.toString('utf8'), 'spreadsheet')
+  return odfText(zip.open(bytes).text('content.xml') || '', 'spreadsheet')
+}
+
+function odp(bytes) {
+  if (bytes[0] !== 0x50) return odfText(bytes.toString('utf8'), 'presentation')
+  return odfText(zip.open(bytes).text('content.xml') || '', 'presentation')
+}
+
 function pptx(bytes) {
   const z = zip.open(bytes)
   const slides = z
@@ -119,6 +140,37 @@ function xlsx(bytes) {
   return lines.join('\n')
 }
 
+function markdown(bytes) {
+  const lines = Buffer.from(bytes).toString('utf8').replace(/\r\n?/g, '\n').split('\n')
+  const out = []
+  let fence = null
+  for (const raw of lines) {
+    const fenceMark = raw.match(/^\s*(```|~~~)/)
+    if (fenceMark) {
+      fence = fence ? null : fenceMark[1]
+      continue
+    }
+    if (fence) {
+      out.push(raw)
+      continue
+    }
+    if (/^\s*([-*_]\s*){3,}$/.test(raw) || /^\s*(=+|-+)\s*$/.test(raw)) continue
+    if (/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(raw)) continue
+    const line = raw
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^(\s*>)+\s?/, '')
+      .replace(/^\s*([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/, '')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\|/g, ' ')
+      .replace(/(\*\*|__|~~|\*|`)/g, '')
+      .replace(/\\([\\`*_{}\[\]()#+\-.!|~])/g, '$1')
+    out.push(unescape(line))
+  }
+  return out.join('\n')
+}
+
 // Text a reader can expect to find in the converted PDF, or null when the
 // source format has no cheap independent extractor.
 function sourceText(bytes, extension) {
@@ -138,6 +190,17 @@ function sourceText(bytes, extension) {
     case 'xlsx':
     case 'xlsm':
       return xlsx(bytes)
+    case 'md':
+    case 'markdown':
+      return markdown(bytes)
+    case 'ods':
+    case 'ots':
+    case 'fods':
+      return ods(bytes)
+    case 'odp':
+    case 'otp':
+    case 'fodp':
+      return odp(bytes)
     default:
       return null
   }

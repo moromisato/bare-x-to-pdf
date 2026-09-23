@@ -90,6 +90,7 @@ pub struct ListLevel {
     pub suffix: ListSuffix,
     pub rpr: Option<RunProps>,
     pub tab_pos: Option<f64>,
+    pub size_percent: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +122,9 @@ pub struct Styles {
     hatches: HashMap<String, (Color, f64, f64)>,
     fill_images: HashMap<String, String>,
     opacities: HashMap<String, f64>,
+    defaults: HashMap<String, Element>,
+    pub page_layout_elements: HashMap<String, Element>,
+    pub master_page_elements: HashMap<String, Element>,
 }
 
 impl Styles {
@@ -156,6 +160,9 @@ impl Styles {
                 for el in container.elements() {
                     match el.name.as_str() {
                         "default-style" => {
+                            if let Some(family) = el.attr("family") {
+                                out.defaults.insert(family.to_string(), el.clone());
+                            }
                             if el.attr("family") == Some("paragraph") {
                                 let style = parse_style(el, &fonts);
                                 out.default_paragraph.ppr.merge(&style.ppr);
@@ -185,6 +192,7 @@ impl Styles {
                         }
                         "page-layout" => {
                             if let Some(name) = el.attr("name") {
+                                out.page_layout_elements.insert(name.to_string(), el.clone());
                                 out.page_layouts.insert(name.to_string(), parse_page_layout(el));
                             }
                         }
@@ -225,6 +233,7 @@ impl Styles {
             if let Some(masters) = root.child("master-styles") {
                 for master in masters.children("master-page") {
                     let Some(name) = master.attr("name") else { continue };
+                    out.master_page_elements.insert(name.to_string(), master.clone());
                     out.master_pages.insert(
                         name.to_string(),
                         MasterPage {
@@ -317,6 +326,61 @@ impl Styles {
     }
 
     pub fn graphic(&self, name: &str) -> GraphicProps {
+        self.graphic_family("graphic", name)
+    }
+
+    pub fn family_text(&self, family: &str, name: &str, base_size: f64) -> (ParagraphProps, RunProps) {
+        let mut ppr = ParagraphProps::default();
+        let mut rpr = RunProps::default();
+        let mut size = base_size;
+        for style in self.chain(family, name) {
+            ppr.merge(&style.ppr);
+            let mut r = style.rpr.clone();
+            if let Some(pct) = style.size_percent {
+                r.size = Some(size * pct);
+            }
+            if let Some(s) = r.size {
+                size = s;
+            }
+            rpr.merge(&r);
+        }
+        (ppr, rpr)
+    }
+
+    pub fn default_text(&self, family: &str) -> (ParagraphProps, RunProps) {
+        match self.defaults.get(family) {
+            Some(el) => {
+                let style = parse_style(el, &self.fonts);
+                (style.ppr, style.rpr)
+            }
+            None => (ParagraphProps::default(), RunProps::default()),
+        }
+    }
+
+    pub fn paragraph_on(&self, base: &(ParagraphProps, RunProps), name: Option<&str>) -> (ParagraphProps, RunProps) {
+        let (mut ppr, mut rpr) = base.clone();
+        if let Some(name) = name {
+            for style in self.chain("paragraph", name) {
+                ppr.merge(&style.ppr);
+                let mut r = style.rpr.clone();
+                if let Some(pct) = style.size_percent {
+                    r.size = Some(rpr.size.unwrap_or(18.0) * pct);
+                }
+                rpr.merge(&r);
+            }
+        }
+        (ppr, rpr)
+    }
+
+    pub fn graphic_family(&self, family: &str, name: &str) -> GraphicProps {
+        self.graphic_chain(family, name, false)
+    }
+
+    pub fn graphic_with_default(&self, family: &str, name: &str) -> GraphicProps {
+        self.graphic_chain(family, name, true)
+    }
+
+    fn graphic_chain(&self, family: &str, name: &str, with_default: bool) -> GraphicProps {
         let mut props = GraphicProps {
             wrap: Wrap::TopAndBottom,
             h_pos: "from-left".into(),
@@ -326,8 +390,15 @@ impl Styles {
             opacity: 1.0,
             ..GraphicProps::default()
         };
-        for style_name in self.chain_names("graphic", name) {
-            let Some(el) = self.raw_graphic(&style_name) else { continue };
+        let default = if with_default { self.defaults.get("graphic") } else { None };
+        let chain: Vec<&Element> = default
+            .into_iter()
+            .chain(self.chain_names(family, name).iter().filter_map(|n| self.raw.get(&format!("{family}:{n}")).or_else(|| self.raw_graphic(n))))
+            .collect();
+        if with_default {
+            props.stroke = Some((0.5, Color(0, 0, 0)));
+        }
+        for el in chain {
             let Some(g) = el.child("graphic-properties") else { continue };
             if let Some(opacity) = g.attr("opacity").and_then(percent) {
                 props.opacity = opacity;
@@ -388,7 +459,16 @@ impl Styles {
                     let color = g.attr("stroke-color").and_then(Color::parse_hex).unwrap_or(Color(0, 0, 0));
                     props.stroke = Some((width, color));
                 }
-                None => {}
+                None => {
+                    if let Some((width, color)) = props.stroke.as_mut() {
+                        if let Some(w) = g.attr("stroke-width").and_then(length) {
+                            *width = w.max(0.5);
+                        }
+                        if let Some(c) = g.attr("stroke-color").and_then(Color::parse_hex) {
+                            *color = c;
+                        }
+                    }
+                }
             }
             if let Some(border) = g.attr("border").filter(|b| *b != "none") {
                 if let Some((w, c, _)) = parse_border(border) {
@@ -450,6 +530,18 @@ impl Styles {
         }
         names.reverse();
         names
+    }
+
+    pub fn elements(&self, family: &str, name: &str) -> Vec<&Element> {
+        self.chain_names(family, name).iter().filter_map(|n| self.raw.get(&format!("{family}:{n}"))).collect()
+    }
+
+    pub fn default_style(&self, family: &str) -> Option<&Element> {
+        self.defaults.get(family)
+    }
+
+    pub fn run_props(&self, text_properties: &Element) -> RunProps {
+        parse_text_properties(text_properties, &self.fonts).0
     }
 
     pub fn section_columns(&self, name: &str) -> Option<ColumnsBlock> {
@@ -518,9 +610,7 @@ impl Styles {
 
     pub fn cell(&self, name: &str) -> CellProps {
         let mut props = CellProps::default();
-        let Some(p) = self.raw.get(&format!("table-cell:{name}")).and_then(|e| e.child("table-cell-properties")) else {
-            return props;
-        };
+        let Some(el) = self.raw.get(&format!("table-cell:{name}")) else { return props };
         let side = |value: Option<&str>| -> BorderSide {
             match value {
                 None => BorderSide::Unset,
@@ -528,28 +618,57 @@ impl Styles {
                 Some(v) => parse_border(v).map(|(w, c, s)| BorderSide::Line { width: w, color: c, style: s }).unwrap_or(BorderSide::None),
             }
         };
-        let all = side(p.attr("border"));
-        props.borders = Borders { top: all, left: all, bottom: all, right: all, ..Borders::default() };
-        for (name, slot) in [("border-top", &mut props.borders.top), ("border-left", &mut props.borders.left), ("border-bottom", &mut props.borders.bottom), ("border-right", &mut props.borders.right)] {
-            let s = side(p.attr(name));
-            if s != BorderSide::Unset {
-                *slot = s;
+        let apply_borders = |p: &Element, borders: &mut Borders| {
+            let all = side(p.attr("border"));
+            if all != BorderSide::Unset {
+                *borders = Borders { top: all, left: all, bottom: all, right: all, ..Borders::default() };
+            }
+            for (name, slot) in [("border-top", &mut borders.top), ("border-left", &mut borders.left), ("border-bottom", &mut borders.bottom), ("border-right", &mut borders.right)] {
+                let s = side(p.attr(name));
+                if s != BorderSide::Unset {
+                    *slot = s;
+                }
+            }
+        };
+        let padding = |p: &Element, margins: &mut CellMargins| {
+            let pad = |n: &str| p.attr(n).and_then(length);
+            let all = pad("padding");
+            margins.top = pad("padding-top").or(all).or(margins.top);
+            margins.left = pad("padding-left").or(all).or(margins.left);
+            margins.bottom = pad("padding-bottom").or(all).or(margins.bottom);
+            margins.right = pad("padding-right").or(all).or(margins.right);
+        };
+        props.valign = VAlign::Top;
+        if let Some(p) = el.child("table-cell-properties") {
+            apply_borders(p, &mut props.borders);
+            padding(p, &mut props.margins);
+            props.fill = p.attr("background-color").filter(|c| *c != "transparent").and_then(Color::parse_hex);
+            props.valign = match p.attr("vertical-align") {
+                Some("middle") => VAlign::Center,
+                Some("bottom") => VAlign::Bottom,
+                _ => VAlign::Top,
+            };
+        }
+        if let Some(g) = el.child("graphic-properties") {
+            padding(g, &mut props.margins);
+            if g.attr("fill") != Some("none") {
+                if let Some(c) = g.attr("fill-color").and_then(Color::parse_hex) {
+                    props.fill = Some(c);
+                }
+            }
+            if let Some(v) = g.attr("textarea-vertical-align") {
+                props.valign = match v {
+                    "middle" => VAlign::Center,
+                    "bottom" => VAlign::Bottom,
+                    _ => VAlign::Top,
+                };
             }
         }
-        let pad = |n: &str| p.attr(n).and_then(length);
-        let all_pad = pad("padding");
-        props.margins = CellMargins {
-            top: pad("padding-top").or(all_pad),
-            left: pad("padding-left").or(all_pad),
-            bottom: pad("padding-bottom").or(all_pad),
-            right: pad("padding-right").or(all_pad),
-        };
-        props.fill = p.attr("background-color").filter(|c| *c != "transparent").and_then(Color::parse_hex);
-        props.valign = match p.attr("vertical-align") {
-            Some("middle") => VAlign::Center,
-            Some("bottom") => VAlign::Bottom,
-            _ => VAlign::Top,
-        };
+        if props.borders == Borders::default() {
+            if let Some(p) = el.child("paragraph-properties") {
+                apply_borders(p, &mut props.borders);
+            }
+        }
         props
     }
 }
@@ -791,8 +910,10 @@ fn parse_list(el: &Element, fonts: &HashMap<String, String>) -> Vec<Option<ListL
                 hanging = Some(min_label);
             }
         }
-        let rpr = lvl.child("text-properties").map(|t| parse_text_properties(t, fonts).0);
-        levels[level - 1] = Some(ListLevel { kind, left, hanging, suffix, rpr, tab_pos });
+        let text = lvl.child("text-properties").map(|t| parse_text_properties(t, fonts));
+        let size_percent = text.as_ref().and_then(|t| t.1);
+        let rpr = text.map(|t| t.0);
+        levels[level - 1] = Some(ListLevel { kind, left, hanging, suffix, rpr, tab_pos, size_percent });
     }
     levels
 }

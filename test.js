@@ -29,13 +29,21 @@ test('lists supported conversions', (t) => {
       'odt>pdf',
       'ott>pdf',
       'fodt>pdf',
+      'ods>pdf',
+      'ots>pdf',
+      'fods>pdf',
+      'odp>pdf',
+      'otp>pdf',
+      'fodp>pdf',
       'pptx>pdf',
       'xlsx>pdf',
       'xlsm>pdf',
       'xltx>pdf',
       'xltm>pdf',
       'xls>pdf',
-      'xlt>pdf'
+      'xlt>pdf',
+      'md>pdf',
+      'markdown>pdf'
     ]
   )
 })
@@ -79,6 +87,31 @@ test('converts an xls workbook to pdf', (t) => {
   t.ok(doc.pageCount() >= 1)
   t.ok(doc.pageFlags(0).hasText)
   doc.close()
+})
+
+test('converts markdown to pdf when the format is given', (t) => {
+  const markdown = Buffer.from('# Title\n\nSome **bold** text.\n\n- one\n- two\n')
+  t.is(converter.detect(markdown), null)
+  const pdf = converter.convert(markdown, { from: 'md', to: 'pdf' })
+  const doc = pdfium.open(pdf)
+  t.is(doc.pageCount(), 1)
+  t.ok(doc.extractText(0).includes('Title'))
+  doc.close()
+})
+
+test('converts OpenDocument spreadsheets and presentations to pdf', (t) => {
+  const ods = fs.readFileSync(path.join(__dirname, 'bench', 'corpus', 'odf-cond-format.ods'))
+  t.is(converter.detect(ods), 'ods')
+  const sheet = pdfium.open(converter.convert(ods, { to: 'pdf' }))
+  t.is(sheet.pageCount(), 1)
+  t.ok(sheet.extractText(0).includes('Epsilon'))
+  sheet.close()
+  const odp = fs.readFileSync(path.join(__dirname, 'bench', 'corpus', 'odf-sdk-sample.odp'))
+  t.is(converter.detect(odp), 'odp')
+  const slides = pdfium.open(converter.convert(odp, { to: 'pdf' }))
+  t.is(slides.pageCount(), 4)
+  t.ok(Math.abs(slides.pageSize(0).width - 720) < 1)
+  slides.close()
 })
 
 test('rejects unsupported and undetectable input', (t) => {
