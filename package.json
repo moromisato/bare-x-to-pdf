@@ -113,6 +113,7 @@
     "bare-x-to-pdf-ios-arm64-simulator": "0.2.0",
     "bare-x-to-pdf-ios-x64-simulator": "0.2.0",
     "bare-x-to-pdf-linux-arm64": "0.2.0",
-    "bare-x-to-pdf-linux-x64": "0.2.0"
+    "bare-x-to-pdf-linux-x64": "0.2.0",
+    "bare-x-to-pdf-win32-x64": "0.2.0"
   }
 }

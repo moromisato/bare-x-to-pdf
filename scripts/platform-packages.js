@@ -71,8 +71,7 @@ const TARGETS = [
     target: 'win32-x64',
     platform: 'win32',
     arch: 'x64',
-    label: 'Windows x86 64-bit',
-    unpublished: true
+    label: 'Windows x86 64-bit'
   }
 ]
 
@@ -113,7 +112,7 @@ for (const t of TARGETS) {
   } else {
     byPlatform[t.arch] = name
   }
-  if (!t.unpublished) optional[name] = pkg.version
+  optional[name] = pkg.version
 }
 
 pkg.imports = { '#binding': imports }

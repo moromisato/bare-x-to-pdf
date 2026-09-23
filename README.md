@@ -32,8 +32,8 @@ The native prebuild is an optional dependency per platform (`bare-x-to-pdf-<plat
 so an install downloads only the package for its own platform, about 17 MB packed and
 42 MB unpacked, plus the main package with the fonts and sources, about 4 MB packed.
 Prebuilds exist for android (arm, arm64, x64), darwin (arm64, x64), ios (arm64 and the
-arm64 and x64 simulators) and linux (arm64, x64). Windows has no package on npm yet, so
-Windows builds from a checkout with the Bare toolchain, CMake 4 and Rust.
+arm64 and x64 simulators), linux (arm64, x64) and win32 (x64); other hosts build from a
+checkout with the Bare toolchain, CMake 4 and Rust.
 
 To bundle for a different platform, ask npm for that prebuild as well:
 
