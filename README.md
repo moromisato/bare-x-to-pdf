@@ -6,28 +6,34 @@ A native addon with a Rust engine that lays pages out with
 
 `x` is every format it reads into a PDF today:
 
-| Family              | Extensions                         |
-| ------------------- | ---------------------------------- |
-| Word (OOXML)        | `.docx`, `.docm`, `.dotx`, `.dotm` |
-| Word 97–2003        | `.doc`, `.dot`                     |
-| OpenDocument Text   | `.odt`, `.ott`, `.fodt`            |
-| OpenDocument Sheet  | `.ods`, `.ots`, `.fods`            |
-| OpenDocument Slides | `.odp`, `.otp`, `.fodp`            |
-| PowerPoint          | `.pptx`                            |
-| Excel               | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
-| Excel 97–2003       | `.xls`, `.xlt`                     |
-| Markdown            | `.md`, `.markdown`                 |
+| Family                    | Extensions                         |
+| ------------------------- | ---------------------------------- |
+| Word                      | `.docx`, `.docm`, `.dotx`, `.dotm` |
+| Word 97–2003              | `.doc`, `.dot`                     |
+| Excel                     | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
+| Excel 97–2003             | `.xls`, `.xlt`                     |
+| PowerPoint                | `.pptx`                            |
+| OpenDocument Text         | `.odt`, `.ott`, `.fodt`            |
+| OpenDocument Spreadsheet  | `.ods`, `.ots`, `.fods`            |
+| OpenDocument Presentation | `.odp`, `.otp`, `.fodp`            |
+| Markdown                  | `.md`, `.markdown`                 |
+
+The `from` name for each is the extension without its dot, and PDF is the only output.
+Markdown is CommonMark plus GitHub tables, task lists and strikethrough. Legacy
+PowerPoint (`.ppt`), `.pptm`, `.potx`, `.ppsx`, Rich Text and HTML are not read.
 
 ## Install
 
 ```sh
-npm install bare-x-to-pdf@beta
+npm install bare-x-to-pdf
 ```
 
 The native prebuild is an optional dependency per platform (`bare-x-to-pdf-<platform>-<arch>`),
-so an install downloads only the package for its own platform, about 20 MB, plus the
-fonts and sources in the main package. darwin, linux, win32, android and ios are covered;
-other hosts build from source with the Bare toolchain, CMake 4 and Rust.
+so an install downloads only the package for its own platform, about 17 MB packed and
+42 MB unpacked, plus the main package with the fonts and sources, about 4 MB packed.
+Prebuilds exist for android (arm, arm64, x64), darwin (arm64, x64), ios (arm64 and the
+arm64 and x64 simulators) and linux (arm64, x64). The win32-x64 package is not on npm yet,
+so Windows and other hosts build from source with the Bare toolchain, CMake 4 and Rust.
 
 To bundle for a different platform, ask npm for that prebuild as well:
 
@@ -61,7 +67,10 @@ Convert `input` and return a `Buffer`.
 
 ### `detect(input)`
 
-Return the detected format (`'docx'`, `'doc'`, `'odt'`, …) or `null`.
+Sniff the format from the bytes and return `'docx'`, `'pptx'`, `'xlsx'`, `'doc'`, `'xls'`,
+`'odt'`, `'ods'`, `'odp'`, `'fodt'`, `'fods'`, `'fodp'` or `null`. Templates and
+macro-enabled files report their base format (a `.dotx` is `'docx'`, an `.ots` is
+`'ods'`), which converts the same way. Markdown is plain text and always returns `null`.
 
 ### `supports(from, to)`
 
@@ -77,5 +86,6 @@ Path to the bundled fonts directory.
 
 ## License
 
-Apache-2.0. Typst and its dependencies are Apache-2.0 or MIT; the
-bundled fonts are under the SIL Open Font License (see `fonts/`).
+Apache-2.0. Typst, pulldown-cmark and the other Rust dependencies are Apache-2.0 or MIT.
+Liberation, Carlito and Caladea are under the SIL Open Font License (see `fonts/`);
+OpenSymbol comes from LibreOffice.
