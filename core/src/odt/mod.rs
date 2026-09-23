@@ -1,4 +1,8 @@
+mod geometry;
+mod odp;
 pub(crate) mod styles;
+
+pub use odp::read as read_odp;
 
 use crate::error::Error;
 use crate::model::*;
@@ -60,6 +64,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, Error> {
         .ok_or_else(|| Error::new("odt has no office:text body"))?;
 
     let reader = Reader {
+        frame_base: std::cell::RefCell::new(None),
         styles: &styles,
         media: &media,
         counters: std::cell::RefCell::new(HashMap::new()),
@@ -121,6 +126,7 @@ fn entry<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>, name: &str) 
 }
 
 struct Reader<'a> {
+    frame_base: std::cell::RefCell<Option<(ParagraphProps, RunProps)>>,
     styles: &'a Styles,
     media: &'a HashMap<String, ImageData>,
     counters: std::cell::RefCell<HashMap<String, Vec<i64>>>,
@@ -279,7 +285,10 @@ impl Reader<'_> {
 
     fn paragraph(&self, el: &Element, list_style: Option<&str>, level: usize, list_key: Option<&str>) -> Paragraph {
         let style_name = el.attr("style-name");
-        let (mut props, base) = self.styles.paragraph(style_name);
+        let (mut props, base) = match self.frame_base.borrow().as_ref() {
+            Some(frame) => self.styles.paragraph_on(frame, style_name),
+            None => self.styles.paragraph(style_name),
+        };
         let mut list_style_name = list_style
             .map(str::to_owned)
             .or_else(|| style_name.and_then(|s| self.styles.list_style_of(s)));
@@ -309,7 +318,13 @@ impl Reader<'_> {
         let list_level = list_style_name
             .as_deref()
             .and_then(|name| self.styles.list_level(name, level));
-        if let Some(lvl) = &list_level {
+        let frame_indents = self.frame_base.borrow().is_some() && props.indent_left.is_some();
+        if frame_indents {
+            let first = props.indent_first_line.unwrap_or(0.0);
+            props.indent_hanging = Some((-first).max(0.0));
+            props.indent_first_line = Some(first.max(0.0));
+        }
+        if let Some(lvl) = list_level.as_ref().filter(|_| !frame_indents) {
             if let Some(left) = lvl.left {
                 props.indent_left = Some(left);
             }
@@ -336,17 +351,23 @@ impl Reader<'_> {
             (Some(lvl), Some(name)) if list_style.is_some() || outline => {
                 let key = list_key.unwrap_or(name);
                 let text = self.label(key, name, level, lvl);
+                let first_run = inlines.iter().find_map(|i| if let Inline::Text { props, .. } = i { Some(props.clone()) } else { None });
                 text.map(|text| ListLabel {
                     text,
                     props: {
-                        let mut p = base.clone();
+                        let in_frame = self.frame_base.borrow().is_some();
+                        let mut p = if in_frame { first_run.clone().unwrap_or_else(|| base.clone()) } else { base.clone() };
                         if let Some(rp) = &lvl.rpr {
+                            let size = p.size;
                             p.merge(rp);
+                            if in_frame {
+                                p.size = size;
+                            }
                         }
                         p
                     },
-                    suffix: lvl.suffix,
-                    tab_pos: lvl.tab_pos,
+                    suffix: if frame_indents && props.indent_hanging.unwrap_or(0.0) <= 0.0 { ListSuffix::Space } else { lvl.suffix },
+                    tab_pos: if frame_indents { props.indent_left } else { lvl.tab_pos },
                 })
             }
             _ => None,
@@ -611,16 +632,27 @@ impl Reader<'_> {
             match tc.name.as_str() {
                 "table-cell" => {
                     let repeat = tc.attr("number-columns-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).min(64);
+                    let style = tc.attr("style-name").or(tr.attr("default-cell-style-name"));
+                    let saved = self.frame_base.borrow().clone();
+                    if let (Some(base), Some(name)) = (saved.as_ref(), style) {
+                        let (ppr, rpr) = self.styles.family_text("table-cell", name, base.1.size.unwrap_or(18.0));
+                        let mut merged = base.clone();
+                        merged.0.merge(&ppr);
+                        merged.1.merge(&rpr);
+                        *self.frame_base.borrow_mut() = Some(merged);
+                    }
+                    let blocks = self.blocks(tc);
+                    *self.frame_base.borrow_mut() = saved;
                     for _ in 0..repeat {
                         let mut cell = Cell {
-                            blocks: self.blocks(tc),
+                            blocks: blocks.clone(),
                             span: tc.attr("number-columns-spanned").and_then(|v| v.parse().ok()).unwrap_or(1),
                             ..Cell::default()
                         };
                         if tc.attr("number-rows-spanned").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1) > 1 {
                             cell.vertical_merge = Some(VerticalMerge::Restart);
                         }
-                        if let Some(name) = tc.attr("style-name") {
+                        if let Some(name) = style {
                             let props = self.styles.cell(name);
                             cell.borders = props.borders;
                             cell.margins = props.margins;

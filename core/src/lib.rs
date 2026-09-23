@@ -48,6 +48,10 @@ pub fn convert(input: &[u8], from: &str, to: &str, options: &Options) -> Result<
             let document = xlsx::read(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
         }
+        ("odp" | "otp" | "fodp", "pdf") => {
+            let document = odt::read_odp(input)?;
+            typst_backend::render_pdf(&document, options.fonts_dir)
+        }
         ("ods" | "ots" | "fods", "pdf") => {
             let document = xlsx::read_ods(input)?;
             typst_backend::render_pdf(&document, options.fonts_dir)
