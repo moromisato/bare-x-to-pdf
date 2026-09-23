@@ -35,7 +35,9 @@ test('lists supported conversions', (t) => {
       'xltx>pdf',
       'xltm>pdf',
       'xls>pdf',
-      'xlt>pdf'
+      'xlt>pdf',
+      'md>pdf',
+      'markdown>pdf'
     ]
   )
 })
@@ -78,6 +80,16 @@ test('converts an xls workbook to pdf', (t) => {
   const doc = pdfium.open(pdf)
   t.ok(doc.pageCount() >= 1)
   t.ok(doc.pageFlags(0).hasText)
+  doc.close()
+})
+
+test('converts markdown to pdf when the format is given', (t) => {
+  const markdown = Buffer.from('# Title\n\nSome **bold** text.\n\n- one\n- two\n')
+  t.is(converter.detect(markdown), null)
+  const pdf = converter.convert(markdown, { from: 'md', to: 'pdf' })
+  const doc = pdfium.open(pdf)
+  t.is(doc.pageCount(), 1)
+  t.ok(doc.extractText(0).includes('Title'))
   doc.close()
 })
 

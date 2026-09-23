@@ -9,4 +9,5 @@ if (!input || !output) {
 }
 
 const to = path.extname(output).slice(1)
-fs.writeFileSync(output, convert(fs.readFileSync(input), { to }))
+const from = path.extname(input).slice(1) || undefined
+fs.writeFileSync(output, convert(fs.readFileSync(input), { from, to }))

@@ -119,6 +119,37 @@ function xlsx(bytes) {
   return lines.join('\n')
 }
 
+function markdown(bytes) {
+  const lines = Buffer.from(bytes).toString('utf8').replace(/\r\n?/g, '\n').split('\n')
+  const out = []
+  let fence = null
+  for (const raw of lines) {
+    const fenceMark = raw.match(/^\s*(```|~~~)/)
+    if (fenceMark) {
+      fence = fence ? null : fenceMark[1]
+      continue
+    }
+    if (fence) {
+      out.push(raw)
+      continue
+    }
+    if (/^\s*([-*_]\s*){3,}$/.test(raw) || /^\s*(=+|-+)\s*$/.test(raw)) continue
+    if (/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(raw)) continue
+    const line = raw
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^(\s*>)+\s?/, '')
+      .replace(/^\s*([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/, '')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\|/g, ' ')
+      .replace(/(\*\*|__|~~|\*|`)/g, '')
+      .replace(/\\([\\`*_{}\[\]()#+\-.!|~])/g, '$1')
+    out.push(unescape(line))
+  }
+  return out.join('\n')
+}
+
 // Text a reader can expect to find in the converted PDF, or null when the
 // source format has no cheap independent extractor.
 function sourceText(bytes, extension) {
@@ -138,6 +169,9 @@ function sourceText(bytes, extension) {
     case 'xlsx':
     case 'xlsm':
       return xlsx(bytes)
+    case 'md':
+    case 'markdown':
+      return markdown(bytes)
     default:
       return null
   }
