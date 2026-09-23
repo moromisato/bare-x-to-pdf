@@ -77,6 +77,27 @@ function fodt(bytes) {
   return odtBody(bytes.toString('utf8'))
 }
 
+function odfText(content, container) {
+  const body = content.match(new RegExp(`<office:${container}\\b[\\s\\S]*?</office:${container}>`))
+  if (!body) return ''
+  const cleaned = body[0]
+    .replace(/<office:annotation\b[\s\S]*?<\/office:annotation>/g, '')
+    .replace(/<presentation:notes\b[\s\S]*?<\/presentation:notes>/g, '')
+    .replace(/<table:table-cell\b[^>]*table:number-columns-repeated="\d+"[^>]*\/>/g, '')
+    .replace(/<\/table:table-cell>/g, '</table:table-cell> ')
+  return stripTags(cleaned.replace(/<\/text:p>/g, '</text:p>\n'))
+}
+
+function ods(bytes) {
+  if (bytes[0] !== 0x50) return odfText(bytes.toString('utf8'), 'spreadsheet')
+  return odfText(zip.open(bytes).text('content.xml') || '', 'spreadsheet')
+}
+
+function odp(bytes) {
+  if (bytes[0] !== 0x50) return odfText(bytes.toString('utf8'), 'presentation')
+  return odfText(zip.open(bytes).text('content.xml') || '', 'presentation')
+}
+
 function pptx(bytes) {
   const z = zip.open(bytes)
   const slides = z
@@ -172,6 +193,14 @@ function sourceText(bytes, extension) {
     case 'md':
     case 'markdown':
       return markdown(bytes)
+    case 'ods':
+    case 'ots':
+    case 'fods':
+      return ods(bytes)
+    case 'odp':
+    case 'otp':
+    case 'fodp':
+      return odp(bytes)
     default:
       return null
   }

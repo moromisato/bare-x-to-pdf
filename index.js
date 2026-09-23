@@ -13,6 +13,12 @@ const CONVERSIONS = {
   odt: ['pdf'],
   ott: ['pdf'],
   fodt: ['pdf'],
+  ods: ['pdf'],
+  ots: ['pdf'],
+  fods: ['pdf'],
+  odp: ['pdf'],
+  otp: ['pdf'],
+  fodp: ['pdf'],
   pptx: ['pdf'],
   xlsx: ['pdf'],
   xlsm: ['pdf'],
@@ -26,6 +32,8 @@ const CONVERSIONS = {
 
 const ZIP_MARKERS = [
   { format: 'odt', marker: 'application/vnd.oasis.opendocument.text' },
+  { format: 'ods', marker: 'application/vnd.oasis.opendocument.spreadsheet' },
+  { format: 'odp', marker: 'application/vnd.oasis.opendocument.presentation' },
   { format: 'docx', marker: 'word/' },
   { format: 'pptx', marker: 'ppt/' },
   { format: 'xlsx', marker: 'xl/' }
@@ -56,7 +64,11 @@ function detect(input) {
     bytes.byteOffset,
     Math.min(bytes.byteLength, 4096)
   ).toString('latin1')
-  if (head.trimStart().startsWith('<?xml') && head.includes('office:document')) return 'fodt'
+  if (head.trimStart().startsWith('<?xml') && head.includes('office:document')) {
+    if (head.includes('opendocument.spreadsheet')) return 'fods'
+    if (head.includes('opendocument.presentation')) return 'fodp'
+    return 'fodt'
+  }
   return null
 }
 
